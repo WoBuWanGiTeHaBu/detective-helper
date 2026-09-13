@@ -1,4 +1,4 @@
-import { createRouter, createWebHistory, RouteRecordRaw } from 'vue-router'
+import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -15,13 +15,17 @@ const routes: RouteRecordRaw[] = [
     path: '/workspace/:bookId',
     name: 'Workspace',
     component: () => import('@/views/BookWorkspaceView.vue'),
-    meta: { title: '案件工作空间' }
+    meta: { title: '案件推演' }
   },
   {
-    path: '/relation-graphs',
-    name: 'RelationGraphs',
+    path: '/workspace/:bookId/graph/:graphId',
+    name: 'RelationGraph',
     component: () => import('@/views/RelationGraphView.vue'),
-    meta: { title: '关系图谱' }
+    meta: { title: '关系图' }
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    redirect: '/bookshelf'
   }
 ]
 
@@ -30,10 +34,8 @@ const router = createRouter({
   routes
 })
 
-// 路由守卫
-router.beforeEach((to, from, next) => {
-  // 设置页面标题
-  document.title = `${to.meta.title || '侦探助手'} - Detective Helper`
+router.beforeEach((to, _from, next) => {
+  document.title = `${to.meta.title ?? '推演录'} · 推演录`
   next()
 })
 

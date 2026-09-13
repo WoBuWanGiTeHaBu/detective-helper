@@ -1,5 +1,8 @@
 server:
-  port: 0
+  # 固定端口：前端 vite proxy 指向 localhost:8081（见 frontend/vite.config.ts）
+  # 这里与 proxy target 必须保持一致，不能再设为 0（随机端口）。
+  # 不用 8080 是因为本机 nginx 已占用该端口。
+  port: 8081
 
 spring:
   application:

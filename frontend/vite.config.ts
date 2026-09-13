@@ -15,8 +15,15 @@ export default defineConfig({
     port: 5173,
     host: '0.0.0.0',
     proxy: {
+      // target 必须与后端 server.port（backend/src/main/resources/application.yml）一致。
+      // 旧配置指向 8080，但后端实际是随机端口，且 8080 被本机 nginx 占用，故改为 8081。
       '/api': {
-        target: 'http://localhost:8080',
+        target: 'http://localhost:8081',
+        changeOrigin: true
+      },
+      // 封面等静态资源。后端静态映射路径确定后，改这里 + src/utils/coverUrl.ts 两处即可
+      '/files': {
+        target: 'http://localhost:8081',
         changeOrigin: true
       }
     }
@@ -36,9 +43,10 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
+          // 注意：axios / dayjs / lodash-es 与 ant-design-vue 之间存在互相引用，
+          // 单独拆成 utils 会产生循环 chunk，这里只做稳定的三方拆分。
           'vue-vendor': ['vue', 'vue-router', 'pinia'],
-          'ant-design': ['ant-design-vue', '@ant-design/icons-vue'],
-          'utils': ['axios', 'dayjs', 'lodash-es']
+          'ant-design': ['ant-design-vue', '@ant-design/icons-vue']
         }
       }
     }

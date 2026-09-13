@@ -4,15 +4,13 @@ import jakarta.validation.constraints.NotBlank;
 
 /**
  * 更新页面DTO
+ * <p>
+ * 仅承载名称，画布数据通过 /api/pages/{id}/canvas 单独保存。
  */
 public class PageUpdateDTO {
 
     @NotBlank(message = "页面名称不能为空")
     private String name;
-
-    private Integer sortOrder;
-
-    private String canvasData;
 
     public String getName() {
         return name;
@@ -20,22 +18,6 @@ public class PageUpdateDTO {
 
     public void setName(String name) {
         this.name = name;
-    }
-
-    public Integer getSortOrder() {
-        return sortOrder;
-    }
-
-    public void setSortOrder(Integer sortOrder) {
-        this.sortOrder = sortOrder;
-    }
-
-    public String getCanvasData() {
-        return canvasData;
-    }
-
-    public void setCanvasData(String canvasData) {
-        this.canvasData = canvasData;
     }
 
 }

@@ -1,12 +1,11 @@
 package com.theos.detectivehelper.service;
 
+import com.theos.detectivehelper.common.ErrorCode;
 import com.theos.detectivehelper.common.exception.BusinessException;
 import com.theos.detectivehelper.domain.RelationGraph;
 import com.theos.detectivehelper.dto.RelationGraphCreateDTO;
 import com.theos.detectivehelper.dto.RelationGraphExtractDTO;
 import com.theos.detectivehelper.dto.RelationGraphUpdateDTO;
-import com.theos.detectivehelper.graph.GraphBuilder;
-import com.theos.detectivehelper.graph.RelationExtractor;
 import com.theos.detectivehelper.repository.BookRepository;
 import com.theos.detectivehelper.repository.RelationGraphRepository;
 import com.theos.detectivehelper.util.JsonUtils;
@@ -15,12 +14,15 @@ import com.theos.detectivehelper.vo.RelationGraphVO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * 关系图服务
+ * <p>
+ * 关系图挂在案件书（book）下，图数据以 data 字段整体存库（{"nodes":[],"edges":[]}）。
  */
 @Service
 @Transactional
@@ -37,31 +39,27 @@ public class RelationGraphService {
     /**
      * 创建关系图
      */
-    public RelationGraphVO createRelationGraph(RelationGraphCreateDTO dto) {
-        if (!bookRepository.findById(dto.getBookId()).isPresent()) {
-            throw new BusinessException(com.theos.detectivehelper.common.ErrorCode.BOOK_NOT_FOUND);
+    public RelationGraphVO createRelationGraph(Long bookId, RelationGraphCreateDTO dto) {
+        if (!bookRepository.findById(bookId).isPresent()) {
+            throw new BusinessException(ErrorCode.BOOK_NOT_FOUND);
         }
 
         RelationGraph graph = new RelationGraph();
-        graph.setBookId(dto.getBookId());
-        graph.setTitle(dto.getTitle());
-        graph.setDescription(dto.getDescription());
-        graph.setGraphData(dto.getGraphData());
+        graph.setBookId(bookId);
+        graph.setName(dto.getName());
 
         RelationGraph savedGraph = relationGraphRepository.save(graph);
         return toVO(savedGraph);
     }
 
     /**
-     * 更新关系图
+     * 更新关系图元信息（仅名称）
      */
     public RelationGraphVO updateRelationGraph(Long id, RelationGraphUpdateDTO dto) {
         RelationGraph graph = relationGraphRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(com.theos.detectivehelper.common.ErrorCode.RELATION_GRAPH_NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.RELATION_GRAPH_NOT_FOUND));
 
-        graph.setTitle(dto.getTitle());
-        graph.setDescription(dto.getDescription());
-        graph.setGraphData(dto.getGraphData());
+        graph.setName(dto.getName());
 
         RelationGraph savedGraph = relationGraphRepository.save(graph);
         return toVO(savedGraph);
@@ -72,7 +70,7 @@ public class RelationGraphService {
      */
     public void deleteRelationGraph(Long id) {
         if (!relationGraphRepository.findById(id).isPresent()) {
-            throw new BusinessException(com.theos.detectivehelper.common.ErrorCode.RELATION_GRAPH_NOT_FOUND);
+            throw new BusinessException(ErrorCode.RELATION_GRAPH_NOT_FOUND);
         }
         relationGraphRepository.deleteById(id);
     }
@@ -82,47 +80,58 @@ public class RelationGraphService {
      */
     public RelationGraphDetailVO getRelationGraphById(Long id) {
         RelationGraph graph = relationGraphRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(com.theos.detectivehelper.common.ErrorCode.RELATION_GRAPH_NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.RELATION_GRAPH_NOT_FOUND));
 
         return toDetailVO(graph);
     }
 
     /**
-     * 获取案件书的所有关系图
+     * 获取案件书下的所有关系图
      */
     public List<RelationGraphVO> getRelationGraphsByBookId(Long bookId) {
+        if (!bookRepository.findById(bookId).isPresent()) {
+            throw new BusinessException(ErrorCode.BOOK_NOT_FOUND);
+        }
         return relationGraphRepository.findByBookId(bookId).stream()
                 .map(this::toVO)
                 .collect(Collectors.toList());
     }
 
     /**
-     * 从案件中提取关系图
+     * 保存关系图数据（覆盖写入 data 字段）
      */
-    public RelationGraphVO extractRelationGraph(RelationGraphExtractDTO dto) {
-        if (!bookRepository.findById(dto.getBookId()).isPresent()) {
-            throw new BusinessException(com.theos.detectivehelper.common.ErrorCode.BOOK_NOT_FOUND);
+    public void saveRelationGraphData(Long id, String dataJson) {
+        RelationGraph graph = relationGraphRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.RELATION_GRAPH_NOT_FOUND));
+
+        if (dataJson != null && !JsonUtils.isValidJson(dataJson)) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "关系图数据不是合法 JSON");
         }
 
-        // 这里需要调用关系提取器
-        // 暂时返回空图
-        RelationGraph graph = new RelationGraph();
-        graph.setBookId(dto.getBookId());
-        graph.setTitle("自动生成的关系图");
-        graph.setDescription("从案件内容中提取的关系图");
-        graph.setGraphData("{\"nodes\":[],\"edges\":[]}");
+        graph.setData(dataJson);
+        relationGraphRepository.save(graph);
+    }
 
-        RelationGraph savedGraph = relationGraphRepository.save(graph);
-        return toVO(savedGraph);
+    /**
+     * 从画布提取关系图数据
+     * <p>
+     * 目前返回占位数据，后续接入 RelationExtractor 的提取逻辑。
+     */
+    public Map<String, Object> extractRelationGraph(Long bookId, RelationGraphExtractDTO dto) {
+        if (!bookRepository.findById(bookId).isPresent()) {
+            throw new BusinessException(ErrorCode.BOOK_NOT_FOUND);
+        }
+
+        // TODO 接入 RelationExtractor：按 dto.getObjectTypes() / dto.getRelationTypes() 过滤画布对象与关系
+        return Map.of("nodes", List.of(), "edges", List.of());
     }
 
     private RelationGraphVO toVO(RelationGraph graph) {
         return new RelationGraphVO(
                 graph.getId(),
                 graph.getBookId(),
-                graph.getTitle(),
-                graph.getDescription(),
-                graph.getGraphData(),
+                graph.getName(),
+                graph.getData(),
                 graph.getCreatedAt(),
                 graph.getUpdatedAt()
         );
@@ -132,42 +141,33 @@ public class RelationGraphService {
         RelationGraphDetailVO detailVO = new RelationGraphDetailVO();
         detailVO.setId(graph.getId());
         detailVO.setBookId(graph.getBookId());
-        detailVO.setTitle(graph.getTitle());
-        detailVO.setDescription(graph.getDescription());
-        detailVO.setGraphData(graph.getGraphData());
+        detailVO.setName(graph.getName());
+        detailVO.setData(graph.getData());
         detailVO.setCreatedAt(graph.getCreatedAt());
         detailVO.setUpdatedAt(graph.getUpdatedAt());
 
-        // 解析图数据
-        if (graph.getGraphData() != null && !graph.getGraphData().isEmpty()) {
-            try {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> graphData = JsonUtils.fromJson(graph.getGraphData(), Map.class);
-
-                Object nodes = graphData.get("nodes");
-                Object edges = graphData.get("edges");
-
-                if (nodes instanceof List) {
-                    detailVO.setNodeCount(((List<?>) nodes).size());
-                }
-
-                if (edges instanceof List) {
-                    detailVO.setEdgeCount(((List<?>) edges).size());
-                }
-
-            } catch (Exception e) {
-                detailVO.setNodeCount(0);
-                detailVO.setEdgeCount(0);
-            }
-        } else {
-            detailVO.setNodeCount(0);
-            detailVO.setEdgeCount(0);
-        }
-
-        detailVO.setEntityTypes(List.of("人物", "物品", "事件"));
-        detailVO.setRelationTypes(List.of("认识", "使用", "参与"));
+        // data 里的 nodes / edges 在响应中还原为 JSON 数组，而不是转义后的字符串
+        detailVO.setNodes(parseJsonArray(graph.getData(), "nodes"));
+        detailVO.setEdges(parseJsonArray(graph.getData(), "edges"));
 
         return detailVO;
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Map<String, Object>> parseJsonArray(String dataJson, String field) {
+        if (dataJson == null || dataJson.isEmpty()) {
+            return new ArrayList<>();
+        }
+        try {
+            Map<String, Object> data = JsonUtils.fromJson(dataJson, Map.class);
+            Object value = data.get(field);
+            if (value instanceof List) {
+                return (List<Map<String, Object>>) value;
+            }
+        } catch (Exception ignored) {
+            // 数据损坏时按空图处理，不影响元信息返回
+        }
+        return new ArrayList<>();
     }
 
 }

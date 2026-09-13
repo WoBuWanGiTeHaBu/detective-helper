@@ -1,22 +1,25 @@
 package com.theos.detectivehelper.service;
 
+import com.theos.detectivehelper.common.ErrorCode;
 import com.theos.detectivehelper.common.exception.BusinessException;
 import com.theos.detectivehelper.domain.Event;
 import com.theos.detectivehelper.dto.EventCreateDTO;
 import com.theos.detectivehelper.dto.EventSortDTO;
 import com.theos.detectivehelper.dto.EventUpdateDTO;
+import com.theos.detectivehelper.repository.BookRepository;
 import com.theos.detectivehelper.repository.EventRepository;
 import com.theos.detectivehelper.repository.PageRepository;
 import com.theos.detectivehelper.vo.EventVO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.stream.Collectors;
 
 /**
  * 事件服务
+ * <p>
+ * 事件挂在案件书（book）下，页面（page）挂在事件下，层级为 Book → Event → Page。
  */
 @Service
 @Transactional
@@ -24,44 +27,39 @@ public class EventService {
 
     private final EventRepository eventRepository;
     private final PageRepository pageRepository;
+    private final BookRepository bookRepository;
 
-    public EventService(EventRepository eventRepository, PageRepository pageRepository) {
+    public EventService(EventRepository eventRepository, PageRepository pageRepository, BookRepository bookRepository) {
         this.eventRepository = eventRepository;
         this.pageRepository = pageRepository;
+        this.bookRepository = bookRepository;
     }
 
     /**
      * 创建事件
      */
-    public EventVO createEvent(EventCreateDTO dto) {
-        if (!pageRepository.findById(dto.getPageId()).isPresent()) {
-            throw new BusinessException(com.theos.detectivehelper.common.ErrorCode.PAGE_NOT_FOUND);
+    public EventVO createEvent(Long bookId, EventCreateDTO dto) {
+        if (!bookRepository.findById(bookId).isPresent()) {
+            throw new BusinessException(ErrorCode.BOOK_NOT_FOUND);
         }
 
         Event event = new Event();
-        event.setPageId(dto.getPageId());
-        event.setTitle(dto.getTitle());
-        event.setDescription(dto.getDescription());
-        event.setEventTime(dto.getEventTime() != null ? dto.getEventTime() : LocalDateTime.now());
-        event.setSortOrder(getNextSortOrder(dto.getPageId()));
+        event.setBookId(bookId);
+        event.setName(dto.getName());
+        event.setSortOrder(getNextSortOrder(bookId));
 
         Event savedEvent = eventRepository.save(event);
         return toVO(savedEvent);
     }
 
     /**
-     * 更新事件
+     * 更新事件（仅名称）
      */
     public EventVO updateEvent(Long id, EventUpdateDTO dto) {
         Event event = eventRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(com.theos.detectivehelper.common.ErrorCode.EVENT_NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.EVENT_NOT_FOUND));
 
-        event.setTitle(dto.getTitle());
-        event.setDescription(dto.getDescription());
-        event.setEventTime(dto.getEventTime());
-        if (dto.getSortOrder() != null) {
-            event.setSortOrder(dto.getSortOrder());
-        }
+        event.setName(dto.getName());
 
         Event savedEvent = eventRepository.save(event);
         return toVO(savedEvent);
@@ -72,7 +70,7 @@ public class EventService {
      */
     public void deleteEvent(Long id) {
         if (!eventRepository.findById(id).isPresent()) {
-            throw new BusinessException(com.theos.detectivehelper.common.ErrorCode.EVENT_NOT_FOUND);
+            throw new BusinessException(ErrorCode.EVENT_NOT_FOUND);
         }
         eventRepository.deleteById(id);
     }
@@ -82,15 +80,18 @@ public class EventService {
      */
     public EventVO getEventById(Long id) {
         Event event = eventRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(com.theos.detectivehelper.common.ErrorCode.EVENT_NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.EVENT_NOT_FOUND));
         return toVO(event);
     }
 
     /**
-     * 获取页面的所有事件
+     * 获取案件书下的所有事件
      */
-    public List<EventVO> getEventsByPageId(Long pageId) {
-        return eventRepository.findByPageId(pageId).stream()
+    public List<EventVO> getEventsByBookId(Long bookId) {
+        if (!bookRepository.findById(bookId).isPresent()) {
+            throw new BusinessException(ErrorCode.BOOK_NOT_FOUND);
+        }
+        return eventRepository.findByBookId(bookId).stream()
                 .map(this::toVO)
                 .collect(Collectors.toList());
     }
@@ -98,26 +99,26 @@ public class EventService {
     /**
      * 批量排序事件
      */
-    public void sortEvents(Long pageId, EventSortDTO dto) {
+    public void sortEvents(Long bookId, EventSortDTO dto) {
         List<Long> eventIds = dto.getEventIds();
         if (eventIds == null || eventIds.isEmpty()) {
-            throw new BusinessException(com.theos.detectivehelper.common.ErrorCode.INVALID_SORT_ORDER);
+            throw new BusinessException(ErrorCode.INVALID_SORT_ORDER);
         }
 
         for (int i = 0; i < eventIds.size(); i++) {
             Event event = eventRepository.findById(eventIds.get(i))
-                    .orElseThrow(() -> new BusinessException(com.theos.detectivehelper.common.ErrorCode.EVENT_NOT_FOUND));
+                    .orElseThrow(() -> new BusinessException(ErrorCode.EVENT_NOT_FOUND));
 
-            if (!event.getPageId().equals(pageId)) {
-                throw new BusinessException(com.theos.detectivehelper.common.ErrorCode.INVALID_OPERATION);
+            if (!event.getBookId().equals(bookId)) {
+                throw new BusinessException(ErrorCode.INVALID_OPERATION);
             }
 
             eventRepository.updateSortOrder(eventIds.get(i), i + 1);
         }
     }
 
-    private int getNextSortOrder(Long pageId) {
-        List<Event> events = eventRepository.findByPageId(pageId);
+    private int getNextSortOrder(Long bookId) {
+        List<Event> events = eventRepository.findByBookId(bookId);
         return events.stream()
                 .mapToInt(event -> event.getSortOrder() != null ? event.getSortOrder() : 0)
                 .max()
@@ -125,13 +126,13 @@ public class EventService {
     }
 
     private EventVO toVO(Event event) {
+        int pageCount = eventRepository.countPagesByEventId(event.getId());
         return new EventVO(
                 event.getId(),
-                event.getPageId(),
-                event.getTitle(),
-                event.getDescription(),
-                event.getEventTime(),
+                event.getBookId(),
+                event.getName(),
                 event.getSortOrder(),
+                pageCount,
                 event.getCreatedAt(),
                 event.getUpdatedAt()
         );

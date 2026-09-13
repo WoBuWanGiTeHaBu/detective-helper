@@ -1,18 +1,24 @@
 package com.theos.detectivehelper.service;
 
+import com.theos.detectivehelper.common.ErrorCode;
 import com.theos.detectivehelper.common.exception.BusinessException;
 import com.theos.detectivehelper.domain.Book;
+import com.theos.detectivehelper.domain.Event;
+import com.theos.detectivehelper.domain.Page;
+import com.theos.detectivehelper.domain.RelationGraph;
 import com.theos.detectivehelper.dto.BookCreateDTO;
 import com.theos.detectivehelper.dto.BookSortDTO;
 import com.theos.detectivehelper.dto.BookUpdateDTO;
 import com.theos.detectivehelper.repository.BookRepository;
+import com.theos.detectivehelper.repository.EventRepository;
+import com.theos.detectivehelper.repository.PageRepository;
+import com.theos.detectivehelper.repository.RelationGraphRepository;
 import com.theos.detectivehelper.vo.BookVO;
 import com.theos.detectivehelper.vo.BookWorkspaceVO;
-import com.theos.detectivehelper.vo.EventVO;
-import com.theos.detectivehelper.vo.RelationGraphVO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -24,9 +30,18 @@ import java.util.stream.Collectors;
 public class BookService {
 
     private final BookRepository bookRepository;
+    private final EventRepository eventRepository;
+    private final PageRepository pageRepository;
+    private final RelationGraphRepository relationGraphRepository;
 
-    public BookService(BookRepository bookRepository) {
+    public BookService(BookRepository bookRepository,
+                       EventRepository eventRepository,
+                       PageRepository pageRepository,
+                       RelationGraphRepository relationGraphRepository) {
         this.bookRepository = bookRepository;
+        this.eventRepository = eventRepository;
+        this.pageRepository = pageRepository;
+        this.relationGraphRepository = relationGraphRepository;
     }
 
     /**
@@ -49,7 +64,7 @@ public class BookService {
      */
     public BookVO updateBook(Long id, BookUpdateDTO dto) {
         Book book = bookRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(com.theos.detectivehelper.common.ErrorCode.BOOK_NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.BOOK_NOT_FOUND));
 
         book.setName(dto.getName());
         if (dto.getCoverType() != null) {
@@ -57,21 +72,24 @@ public class BookService {
         }
         book.setCoverValue(dto.getCoverValue());
         book.setCoverText(dto.getCoverText());
-        if (dto.getSortOrder() != null) {
-            book.setSortOrder(dto.getSortOrder());
-        }
 
         Book savedBook = bookRepository.save(book);
         return toVO(savedBook);
     }
 
     /**
-     * 删除案件书
+     * 删除案件书（级联删除事件、页面、关系图）
      */
     public void deleteBook(Long id) {
         if (!bookRepository.findById(id).isPresent()) {
-            throw new BusinessException(com.theos.detectivehelper.common.ErrorCode.BOOK_NOT_FOUND);
+            throw new BusinessException(ErrorCode.BOOK_NOT_FOUND);
         }
+
+        for (Event event : eventRepository.findByBookId(id)) {
+            pageRepository.deleteByEventId(event.getId());
+        }
+        eventRepository.deleteByBookId(id);
+        relationGraphRepository.deleteByBookId(id);
         bookRepository.deleteById(id);
     }
 
@@ -80,7 +98,7 @@ public class BookService {
      */
     public BookVO getBookById(Long id) {
         Book book = bookRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(com.theos.detectivehelper.common.ErrorCode.BOOK_NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.BOOK_NOT_FOUND));
         return toVO(book);
     }
 
@@ -94,27 +112,31 @@ public class BookService {
     }
 
     /**
-     * 获取案件书工作空间
+     * 获取案件书工作空间：案件书 + 事件（含页面）+ 关系图
      */
     public BookWorkspaceVO getBookWorkspace(Long id) {
         Book book = bookRepository.findById(id)
-                .orElseThrow(() -> new BusinessException(com.theos.detectivehelper.common.ErrorCode.BOOK_NOT_FOUND));
+                .orElseThrow(() -> new BusinessException(ErrorCode.BOOK_NOT_FOUND));
 
-        BookWorkspaceVO workspaceVO = new BookWorkspaceVO();
-        workspaceVO.setId(book.getId());
-        workspaceVO.setName(book.getName());
-        workspaceVO.setCoverType(book.getCoverType());
-        workspaceVO.setCoverValue(book.getCoverValue());
-        workspaceVO.setCoverText(book.getCoverText());
-        workspaceVO.setSortOrder(book.getSortOrder());
-        workspaceVO.setCreatedAt(book.getCreatedAt());
-        workspaceVO.setUpdatedAt(book.getUpdatedAt());
+        List<BookWorkspaceVO.WorkspaceEventVO> events = new ArrayList<>();
+        for (Event event : eventRepository.findByBookId(id)) {
+            List<BookWorkspaceVO.WorkspacePageVO> pages = pageRepository.findByEventId(event.getId()).stream()
+                    .map(this::toWorkspacePage)
+                    .collect(Collectors.toList());
 
-        // 暂时设置为空列表，需要通过其他服务加载
-        workspaceVO.setEvents(List.of());
-        workspaceVO.setRelationGraphs(List.of());
+            events.add(new BookWorkspaceVO.WorkspaceEventVO(
+                    event.getId(),
+                    event.getName(),
+                    event.getSortOrder(),
+                    pages
+            ));
+        }
 
-        return workspaceVO;
+        List<BookWorkspaceVO.WorkspaceRelationGraphVO> relationGraphs = relationGraphRepository.findByBookId(id).stream()
+                .map(this::toWorkspaceRelationGraph)
+                .collect(Collectors.toList());
+
+        return new BookWorkspaceVO(toVO(book), events, relationGraphs);
     }
 
     /**
@@ -123,7 +145,7 @@ public class BookService {
     public void sortBooks(BookSortDTO dto) {
         List<Long> bookIds = dto.getBookIds();
         if (bookIds == null || bookIds.isEmpty()) {
-            throw new BusinessException(com.theos.detectivehelper.common.ErrorCode.INVALID_SORT_ORDER);
+            throw new BusinessException(ErrorCode.INVALID_SORT_ORDER);
         }
 
         for (int i = 0; i < bookIds.size(); i++) {
@@ -137,6 +159,14 @@ public class BookService {
                 .mapToInt(book -> book.getSortOrder() != null ? book.getSortOrder() : 0)
                 .max()
                 .orElse(0) + 1;
+    }
+
+    private BookWorkspaceVO.WorkspacePageVO toWorkspacePage(Page page) {
+        return new BookWorkspaceVO.WorkspacePageVO(page.getId(), page.getName(), page.getSortOrder());
+    }
+
+    private BookWorkspaceVO.WorkspaceRelationGraphVO toWorkspaceRelationGraph(RelationGraph graph) {
+        return new BookWorkspaceVO.WorkspaceRelationGraphVO(graph.getId(), graph.getName());
     }
 
     private BookVO toVO(Book book) {

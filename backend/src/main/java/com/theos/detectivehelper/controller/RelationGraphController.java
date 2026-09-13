@@ -11,12 +11,16 @@ import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 关系图控制器
+ * <p>
+ * 关系图隶属于案件书：列表与创建走 /api/books/{bookId}/relation-graphs，
+ * 单条操作走 /api/relation-graphs/{id}，图数据走 /api/relation-graphs/{id}/data，
+ * 画布提取走 /api/books/{bookId}/relation-graphs/extract。
  */
 @RestController
-@RequestMapping("/api/relation-graphs")
 public class RelationGraphController {
 
     private final RelationGraphService relationGraphService;
@@ -26,57 +30,64 @@ public class RelationGraphController {
     }
 
     /**
-     * 创建关系图
+     * 获取案件书下的关系图列表
      */
-    @PostMapping
-    public Result<RelationGraphVO> createRelationGraph(@Valid @RequestBody RelationGraphCreateDTO dto) {
-        RelationGraphVO graphVO = relationGraphService.createRelationGraph(dto);
-        return Result.success(graphVO);
+    @GetMapping("/api/books/{bookId}/relation-graphs")
+    public Result<List<RelationGraphVO>> listRelationGraphs(@PathVariable Long bookId) {
+        return Result.success(relationGraphService.getRelationGraphsByBookId(bookId));
     }
 
     /**
-     * 更新关系图
+     * 创建关系图
      */
-    @PutMapping("/{id}")
-    public Result<RelationGraphVO> updateRelationGraph(@PathVariable Long id, @Valid @RequestBody RelationGraphUpdateDTO dto) {
-        RelationGraphVO graphVO = relationGraphService.updateRelationGraph(id, dto);
-        return Result.success(graphVO);
+    @PostMapping("/api/books/{bookId}/relation-graphs")
+    public Result<RelationGraphVO> createRelationGraph(@PathVariable Long bookId,
+                                                       @Valid @RequestBody RelationGraphCreateDTO dto) {
+        return Result.success(relationGraphService.createRelationGraph(bookId, dto));
+    }
+
+    /**
+     * 从画布提取关系图数据
+     */
+    @PostMapping("/api/books/{bookId}/relation-graphs/extract")
+    public Result<Map<String, Object>> extractRelationGraph(@PathVariable Long bookId,
+                                                            @Valid @RequestBody RelationGraphExtractDTO dto) {
+        return Result.success(relationGraphService.extractRelationGraph(bookId, dto));
+    }
+
+    /**
+     * 获取关系图详情
+     */
+    @GetMapping("/api/relation-graphs/{id}")
+    public Result<RelationGraphDetailVO> getRelationGraph(@PathVariable Long id) {
+        return Result.success(relationGraphService.getRelationGraphById(id));
+    }
+
+    /**
+     * 更新关系图元信息（仅名称）
+     */
+    @PutMapping("/api/relation-graphs/{id}")
+    public Result<RelationGraphVO> updateRelationGraph(@PathVariable Long id,
+                                                       @Valid @RequestBody RelationGraphUpdateDTO dto) {
+        return Result.success(relationGraphService.updateRelationGraph(id, dto));
     }
 
     /**
      * 删除关系图
      */
-    @DeleteMapping("/{id}")
+    @DeleteMapping("/api/relation-graphs/{id}")
     public Result<Void> deleteRelationGraph(@PathVariable Long id) {
         relationGraphService.deleteRelationGraph(id);
         return Result.success();
     }
 
     /**
-     * 获取关系图详情
+     * 保存关系图数据
      */
-    @GetMapping("/{id}")
-    public Result<RelationGraphDetailVO> getRelationGraphById(@PathVariable Long id) {
-        RelationGraphDetailVO graphVO = relationGraphService.getRelationGraphById(id);
-        return Result.success(graphVO);
-    }
-
-    /**
-     * 获取案件书的所有关系图
-     */
-    @GetMapping("/book/{bookId}")
-    public Result<List<RelationGraphVO>> getRelationGraphsByBookId(@PathVariable Long bookId) {
-        List<RelationGraphVO> graphs = relationGraphService.getRelationGraphsByBookId(bookId);
-        return Result.success(graphs);
-    }
-
-    /**
-     * 从案件中提取关系图
-     */
-    @PostMapping("/extract")
-    public Result<RelationGraphVO> extractRelationGraph(@Valid @RequestBody RelationGraphExtractDTO dto) {
-        RelationGraphVO graphVO = relationGraphService.extractRelationGraph(dto);
-        return Result.success(graphVO);
+    @PutMapping("/api/relation-graphs/{id}/data")
+    public Result<Void> saveRelationGraphData(@PathVariable Long id, @RequestBody String data) {
+        relationGraphService.saveRelationGraphData(id, data);
+        return Result.success();
     }
 
 }

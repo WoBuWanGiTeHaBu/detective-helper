@@ -8,17 +8,11 @@ public class Result<T> {
     private Integer code;
     private String message;
     private T data;
-    private Long timestamp;
-
-    public Result() {
-        this.timestamp = System.currentTimeMillis();
-    }
 
     public Result(Integer code, String message, T data) {
         this.code = code;
         this.message = message;
         this.data = data;
-        this.timestamp = System.currentTimeMillis();
     }
 
     public static <T> Result<T> success() {
@@ -70,12 +64,5 @@ public class Result<T> {
         this.data = data;
     }
 
-    public Long getTimestamp() {
-        return timestamp;
-    }
-
-    public void setTimestamp(Long timestamp) {
-        this.timestamp = timestamp;
-    }
 
 }

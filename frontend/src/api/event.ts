@@ -1,65 +1,39 @@
 import request from './request'
-import type { ApiResponse } from './request'
+import type {
+  CreateEventRequest,
+  EventResponse,
+  SortItem,
+  UpdateEventRequest
+} from './types'
 
-// 事件相关类型
-export interface EventVO {
-  id: number
-  pageId: number
-  title: string
-  description: string
-  eventTime: string
-  sortOrder: number
-  createdAt: string
-  updatedAt: string
-}
-
-export interface EventCreateDTO {
-  pageId: number
-  title?: string
-  description?: string
-  eventTime?: string
-}
-
-export interface EventUpdateDTO {
-  title?: string
-  description?: string
-  eventTime?: string
-  sortOrder?: number
-}
-
-export interface EventSortDTO {
-  eventIds: number[]
-}
-
-// 事件API
+/**
+ * 事件 API —— 对应 tag「事件」
+ * 注意：event 挂在 book 下，不是 page 下。
+ *
+ * GET    /api/books/{bookId}/events        获取事件列表
+ * POST   /api/books/{bookId}/events        创建事件
+ * PUT    /api/events/{id}                  更新事件
+ * DELETE /api/events/{id}                  删除事件
+ * PUT    /api/books/{bookId}/events/sort   批量排序事件
+ */
 export const eventApi = {
-  // 创建事件
-  createEvent(data: EventCreateDTO): Promise<ApiResponse<EventVO>> {
-    return request.post('/events', data)
+  listEvents(bookId: number): Promise<EventResponse[]> {
+    return request.get(`/books/${bookId}/events`)
   },
 
-  // 更新事件
-  updateEvent(id: number, data: EventUpdateDTO): Promise<ApiResponse<EventVO>> {
+  createEvent(bookId: number, data: CreateEventRequest): Promise<EventResponse> {
+    return request.post(`/books/${bookId}/events`, data)
+  },
+
+  updateEvent(id: number, data: UpdateEventRequest): Promise<EventResponse> {
     return request.put(`/events/${id}`, data)
   },
 
-  // 删除事件
-  deleteEvent(id: number): Promise<ApiResponse<void>> {
+  deleteEvent(id: number): Promise<void> {
     return request.delete(`/events/${id}`)
   },
 
-  // 获取事件详情
-  getEventById(id: number): Promise<ApiResponse<EventVO>> {
-    return request.get(`/events/${id}`)
-  },
-
-  // 获取页面的所有事件
-  getEventsByPageId(pageId: number): Promise<ApiResponse<EventVO[]>> {
-    return request.get(`/events/page/${pageId}`)
-  },
-
-  // 批量排序事件
-  sortEvents(pageId: number, data: EventSortDTO): Promise<ApiResponse<void>> {
-    return request.post(`/events/page/${pageId}/sort`, data)
+  sortEvents(bookId: number, items: SortItem[]): Promise<void> {
+    return request.put(`/books/${bookId}/events/sort`, items)
   }
 }

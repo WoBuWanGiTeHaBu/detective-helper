@@ -1,9 +1,12 @@
 package com.theos.detectivehelper.vo;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 关系图详情VO
+ * <p>
+ * data 为库中原始 JSON 字符串；nodes / edges 是解析后的结构，便于前端直接使用。
  */
 public class RelationGraphDetailVO {
 
@@ -11,10 +14,8 @@ public class RelationGraphDetailVO {
     private Long bookId;
     private String name;
     private String data;
-    private Integer nodeCount;
-    private Integer edgeCount;
-    private List<String> entityTypes;
-    private List<String> relationTypes;
+    private List<Map<String, Object>> nodes;
+    private List<Map<String, Object>> edges;
     private String createdAt;
     private String updatedAt;
 
@@ -54,36 +55,20 @@ public class RelationGraphDetailVO {
         this.data = data;
     }
 
-    public Integer getNodeCount() {
-        return nodeCount;
+    public List<Map<String, Object>> getNodes() {
+        return nodes;
     }
 
-    public void setNodeCount(Integer nodeCount) {
-        this.nodeCount = nodeCount;
+    public void setNodes(List<Map<String, Object>> nodes) {
+        this.nodes = nodes;
     }
 
-    public Integer getEdgeCount() {
-        return edgeCount;
+    public List<Map<String, Object>> getEdges() {
+        return edges;
     }
 
-    public void setEdgeCount(Integer edgeCount) {
-        this.edgeCount = edgeCount;
-    }
-
-    public List<String> getEntityTypes() {
-        return entityTypes;
-    }
-
-    public void setEntityTypes(List<String> entityTypes) {
-        this.entityTypes = entityTypes;
-    }
-
-    public List<String> getRelationTypes() {
-        return relationTypes;
-    }
-
-    public void setRelationTypes(List<String> relationTypes) {
-        this.relationTypes = relationTypes;
+    public void setEdges(List<Map<String, Object>> edges) {
+        this.edges = edges;
     }
 
     public String getCreatedAt() {

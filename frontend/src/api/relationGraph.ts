@@ -1,79 +1,59 @@
 import request from './request'
-import type { ApiResponse } from './request'
+import type {
+  CreateRelationGraphRequest,
+  ExtractRelationGraphRequest,
+  RelationGraphData,
+  RelationGraphDetailResponse,
+  RelationGraphResponse,
+  UpdateRelationGraphRequest
+} from './types'
 
-// 关系图相关类型
-export interface RelationGraphVO {
-  id: number
-  bookId: number
-  title: string
-  description: string
-  graphData: string
-  createdAt: string
-  updatedAt: string
-}
-
-export interface RelationGraphDetailVO {
-  id: number
-  bookId: number
-  title: string
-  description: string
-  graphData: string
-  nodeCount: number
-  edgeCount: number
-  entityTypes: string[]
-  relationTypes: string[]
-  createdAt: string
-  updatedAt: string
-}
-
-export interface RelationGraphCreateDTO {
-  bookId: number
-  title: string
-  description?: string
-  graphData?: string
-}
-
-export interface RelationGraphUpdateDTO {
-  title: string
-  description?: string
-  graphData?: string
-}
-
-export interface RelationGraphExtractDTO {
-  bookId: number
-  entityTypes?: string
-  relationTypes?: string
-}
-
-// 关系图API
+/**
+ * 关系图 API —— 对应 tag「关系图」
+ *
+ * GET    /api/books/{bookId}/relation-graphs          获取关系图列表
+ * POST   /api/books/{bookId}/relation-graphs          创建关系图
+ * GET    /api/relation-graphs/{id}                    获取关系图详情
+ * PUT    /api/relation-graphs/{id}                    更新关系图元信息
+ * DELETE /api/relation-graphs/{id}                    删除关系图
+ * PUT    /api/relation-graphs/{id}/data               保存关系图数据
+ * POST   /api/books/{bookId}/relation-graphs/extract  从画布提取关系图数据
+ */
 export const relationGraphApi = {
-  // 创建关系图
-  createRelationGraph(data: RelationGraphCreateDTO): Promise<ApiResponse<RelationGraphVO>> {
-    return request.post('/relation-graphs', data)
+  listRelationGraphs(bookId: number): Promise<RelationGraphResponse[]> {
+    return request.get(`/books/${bookId}/relation-graphs`)
   },
 
-  // 更新关系图
-  updateRelationGraph(id: number, data: RelationGraphUpdateDTO): Promise<ApiResponse<RelationGraphVO>> {
-    return request.put(`/relation-graphs/${id}`, data)
+  createRelationGraph(
+    bookId: number,
+    data: CreateRelationGraphRequest
+  ): Promise<RelationGraphResponse> {
+    return request.post(`/books/${bookId}/relation-graphs`, data)
   },
 
-  // 删除关系图
-  deleteRelationGraph(id: number): Promise<ApiResponse<void>> {
-    return request.delete(`/relation-graphs/${id}`)
-  },
-
-  // 获取关系图详情
-  getRelationGraphById(id: number): Promise<ApiResponse<RelationGraphDetailVO>> {
+  getRelationGraph(id: number): Promise<RelationGraphDetailResponse> {
     return request.get(`/relation-graphs/${id}`)
   },
 
-  // 获取书籍的所有关系图
-  getRelationGraphsByBookId(bookId: number): Promise<ApiResponse<RelationGraphVO[]>> {
-    return request.get(`/relation-graphs/book/${bookId}`)
+  updateRelationGraph(
+    id: number,
+    data: UpdateRelationGraphRequest
+  ): Promise<RelationGraphResponse> {
+    return request.put(`/relation-graphs/${id}`, data)
   },
 
-  // 从案件中提取关系图
-  extractRelationGraph(data: RelationGraphExtractDTO): Promise<ApiResponse<RelationGraphVO>> {
-    return request.post('/relation-graphs/extract', data)
+  deleteRelationGraph(id: number): Promise<void> {
+    return request.delete(`/relation-graphs/${id}`)
+  },
+
+  saveRelationGraphData(id: number, data: RelationGraphData): Promise<void> {
+    return request.put(`/relation-graphs/${id}/data`, data)
+  },
+
+  extractRelationGraph(
+    bookId: number,
+    data: ExtractRelationGraphRequest
+  ): Promise<RelationGraphData> {
+    return request.post(`/books/${bookId}/relation-graphs/extract`, data)
   }
 }

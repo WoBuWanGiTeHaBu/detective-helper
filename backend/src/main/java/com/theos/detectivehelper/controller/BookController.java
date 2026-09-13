@@ -82,7 +82,7 @@ public class BookController {
     /**
      * 批量排序案件书
      */
-    @PostMapping("/sort")
+    @PutMapping("/sort")
     public Result<Void> sortBooks(@Valid @RequestBody BookSortDTO dto) {
         bookService.sortBooks(dto);
         return Result.success();

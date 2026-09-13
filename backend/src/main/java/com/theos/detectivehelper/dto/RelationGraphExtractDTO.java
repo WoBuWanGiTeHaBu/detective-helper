@@ -1,39 +1,33 @@
 package com.theos.detectivehelper.dto;
 
-import jakarta.validation.constraints.NotNull;
+import java.util.List;
 
 /**
- * 提取关系图DTO
+ * 从画布提取关系图DTO
+ * <p>
+ * bookId 由路径参数 /api/books/{bookId}/relation-graphs/extract 提供。
  */
 public class RelationGraphExtractDTO {
 
-    @NotNull(message = "案件书ID不能为空")
-    private Long bookId;
+    /** 需要纳入提取的对象类型，如 person / thing */
+    private List<String> objectTypes;
 
-    private String entityTypes;
-    private String relationTypes;
+    /** 需要纳入提取的关系类型，如 unidirectional / bidirectional / dashed */
+    private List<String> relationTypes;
 
-    public Long getBookId() {
-        return bookId;
+    public List<String> getObjectTypes() {
+        return objectTypes;
     }
 
-    public void setBookId(Long bookId) {
-        this.bookId = bookId;
+    public void setObjectTypes(List<String> objectTypes) {
+        this.objectTypes = objectTypes;
     }
 
-    public String getEntityTypes() {
-        return entityTypes;
-    }
-
-    public void setEntityTypes(String entityTypes) {
-        this.entityTypes = entityTypes;
-    }
-
-    public String getRelationTypes() {
+    public List<String> getRelationTypes() {
         return relationTypes;
     }
 
-    public void setRelationTypes(String relationTypes) {
+    public void setRelationTypes(List<String> relationTypes) {
         this.relationTypes = relationTypes;
     }
 
