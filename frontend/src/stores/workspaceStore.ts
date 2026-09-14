@@ -17,7 +17,13 @@ import type {
 export type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 export function emptyCanvas(): CanvasResponse {
-  return { objects: [], relationships: [], annotations: [], timelines: [] }
+  return {
+    background: 'plain',
+    objects: [],
+    relationships: [],
+    annotations: [],
+    timelines: []
+  }
 }
 
 /** 本地临时 id（后端保存时会分配正式 id） */
@@ -374,6 +380,11 @@ const pagesByEvent = ref<Record<number, WorkspacePage[]>>({})
     try {
       const data = await pageApi.getCanvas(pageId)
       canvas.value = {
+        // background 由后端随画布一起下发，缺省回落纯白
+        background: (data.background as CanvasResponse['background']) ?? 'plain',
+        // 画布尺寸随画布一起下发；后端还没这个字段时留 null，由页面用本地兜底
+        canvasWidth: data.canvasWidth ?? null,
+        canvasHeight: data.canvasHeight ?? null,
         objects: data.objects ?? [],
         relationships: data.relationships ?? [],
         annotations: data.annotations ?? [],
@@ -384,7 +395,8 @@ const pagesByEvent = ref<Record<number, WorkspacePage[]>>({})
     } catch (e) {
       console.error('[workspaceStore] loadCanvas failed:', pageId, e)
       canvas.value = emptyCanvas()
-      canvasLoaded.value = true
+      // 置为 false：加载失败时不允许入队保存，否则会把空画布写回覆盖真实数据
+      canvasLoaded.value = false
     } finally {
       canvasLoading.value = false
     }
@@ -440,8 +452,25 @@ const pagesByEvent = ref<Record<number, WorkspacePage[]>>({})
     t.y = y
   }
 
+  /** 时间线面板尺寸（横向存 width，纵向存 height） */
+  function setTimelineSize(timelineId: string, size: { width?: number; height?: number }) {
+    const t = canvas.value.timelines.find((x) => x.id === timelineId)
+    if (!t) return
+    if (size.width != null) t.width = size.width
+    if (size.height != null) t.height = size.height
+  }
+
   function removeTimeline(timelineId: string) {
     canvas.value.timelines = canvas.value.timelines.filter((t) => t.id !== timelineId)
+  }
+
+  /**
+   * 设置画布背景。
+   * 背景随画布一起存到后端（canvas.background），localStorage 只作为离线兜底。
+   */
+  function setCanvasBackground(bg: string) {
+    canvas.value.background = bg
+    scheduleSave()
   }
 
   /* ---------------- 批量重排 ---------------- */
@@ -522,7 +551,9 @@ const pagesByEvent = ref<Record<number, WorkspacePage[]>>({})
     removeTimelinePoint,
     addTimeline,
     setTimelinePosition,
+    setTimelineSize,
     removeTimeline,
+    setCanvasBackground,
 
     // 重排
     applyEventOrder,

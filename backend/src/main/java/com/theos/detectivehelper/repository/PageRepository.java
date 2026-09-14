@@ -60,6 +60,12 @@ public class PageRepository {
         return jdbcTemplate.query(sql, pageRowMapper, eventId);
     }
 
+    public List<Page> findByBookId(Long bookId) {
+        String sql = "SELECT p.* FROM page p JOIN event e ON p.event_id = e.id WHERE e.book_id = ? " +
+                "ORDER BY p.sort_order ASC, p.created_at DESC";
+        return jdbcTemplate.query(sql, pageRowMapper, bookId);
+    }
+
     public void deleteById(Long id) {
         String sql = "DELETE FROM page WHERE id = ?";
         jdbcTemplate.update(sql, id);

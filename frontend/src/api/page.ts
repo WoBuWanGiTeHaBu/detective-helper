@@ -44,7 +44,8 @@ export const pageApi = {
     return request.get(`/pages/${pageId}/canvas`)
   },
 
-  saveCanvas(pageId: number, data: CanvasResponse): Promise<void> {
+  /** 整体覆盖保存；返回保存后的完整画布 */
+  saveCanvas(pageId: number, data: CanvasResponse): Promise<CanvasResponse> {
     return request.put(`/pages/${pageId}/canvas`, data)
   }
 }

@@ -3,6 +3,7 @@ package com.theos.detectivehelper.common.exception;
 import com.theos.detectivehelper.common.ErrorCode;
 import com.theos.detectivehelper.common.Result;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -30,6 +31,15 @@ public class GlobalExceptionHandler {
                 .map(FieldError::getDefaultMessage)
                 .collect(Collectors.joining(", "));
         return Result.error(ErrorCode.BAD_REQUEST.getCode(), errorMessage);
+    }
+
+    /**
+     * 请求体不是合法 JSON / 类型对不上时返回 400，而不是 500
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Result<?> handleNotReadableException(HttpMessageNotReadableException e) {
+        return Result.error(ErrorCode.BAD_REQUEST.getCode(), "请求体不是合法的 JSON 对象");
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

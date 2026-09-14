@@ -10,6 +10,7 @@
     @mouseleave="$emit('hover', null)"
   >
     <rect
+      class="node-shape"
       :x="object.x"
       :y="object.y"
       :width="object.width"
@@ -64,7 +65,7 @@
     />
   </g>
 
-  <!-- 事件节点：方框，无阴影 -->
+  <!-- 事件节点：方框 -->
   <g
     v-else-if="shapeKind === 'event'"
     class="node node-event"
@@ -75,6 +76,7 @@
     @mouseleave="$emit('hover', null)"
   >
     <rect
+      class="node-shape"
       :x="object.x"
       :y="object.y"
       :width="object.width"
@@ -143,6 +145,7 @@
   >
     <!-- 菱形底：外框 160×100，可用空间约 60% -->
     <path
+      class="node-shape"
       :d="diamondPath"
       fill="#EDEAF0"
       stroke="#B8B0C6"
@@ -266,6 +269,9 @@ function outerDiamondPath(pad: number): string {
 <style scoped>
 .node {
   cursor: grab;
+  /* 宿主 node-layer SVG 是 pointer-events: none（放行画布平移），
+     节点本体在这里恢复命中 */
+  pointer-events: auto;
 }
 
 .node:active {
@@ -283,17 +289,23 @@ function outerDiamondPath(pad: number): string {
   transition: transform 140ms var(--ease);
 }
 
-.node-person rect:first-child {
+/*
+ * 阴影只挂在「底形」上（人物胶囊 / 事件方框 / 事物菱形），
+ * 不挂在整个 <g>，否则文字和选中虚线框也会被投出阴影。
+ * 三类节点用同一组阴影参数，视觉厚度保持一致。
+ */
+.node-shape {
   filter: drop-shadow(0 6px 14px rgba(89, 107, 94, 0.13));
+  transition: filter 160ms var(--ease);
+}
+
+.node.dragging .node-shape,
+.node:active .node-shape {
+  filter: drop-shadow(0 8px 18px rgba(89, 107, 94, 0.2));
 }
 
 .node:hover .node-name {
   fill: #2E3D34;
-}
-
-.node.dragging,
-.node:active {
-  filter: drop-shadow(0 8px 18px rgba(89, 107, 94, 0.2));
 }
 
 .node-name {

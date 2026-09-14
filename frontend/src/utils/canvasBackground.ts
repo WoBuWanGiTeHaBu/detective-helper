@@ -1,9 +1,9 @@
 /**
  * 画布背景偏好
  *
- * 接口文档的 `CanvasResponse` / `PageResponse` 都没有背景字段，
- * 所以这一项只做**前端本地持久化**（按 pageId 存 localStorage），
- * 不参与 PUT /canvas 的保存。换设备不会同步，界面上需要如实说明。
+ * 背景已随画布存进后端（`CanvasResponse.background`，缺省 'plain'），
+ * 这里的 localStorage 只作为**离线 / 后端不可用时的兜底**，不再是唯一数据源：
+ * 读取时优先用后端下发值，写入时两边都写。
  */
 
 export type CanvasBg = 'plain' | 'grid' | 'dot' | 'line'

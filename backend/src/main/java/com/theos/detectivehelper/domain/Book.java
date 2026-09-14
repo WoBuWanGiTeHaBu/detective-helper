@@ -15,6 +15,8 @@ public class Book {
     private Integer sortOrder;
     private String createdAt;
     private String updatedAt;
+    /** 内容最后改动时间；改书名 / 换封面不刷新它。老数据可空，前端自行回退 updatedAt */
+    private String contentUpdatedAt;
     private List<Event> events;
     private List<RelationGraph> relationGraphs;
 
@@ -88,6 +90,14 @@ public class Book {
 
     public void setUpdatedAt(String updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    public String getContentUpdatedAt() {
+        return contentUpdatedAt;
+    }
+
+    public void setContentUpdatedAt(String contentUpdatedAt) {
+        this.contentUpdatedAt = contentUpdatedAt;
     }
 
     public List<Event> getEvents() {

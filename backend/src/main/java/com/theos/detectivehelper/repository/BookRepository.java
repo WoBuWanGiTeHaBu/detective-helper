@@ -34,6 +34,7 @@ public class BookRepository {
             book.setSortOrder(rs.getInt("sort_order"));
             book.setCreatedAt(rs.getString("created_at"));
             book.setUpdatedAt(rs.getString("updated_at"));
+            book.setContentUpdatedAt(rs.getString("content_updated_at"));
             return book;
         }
     };
@@ -79,6 +80,14 @@ public class BookRepository {
     public int countPagesByBookId(Long bookId) {
         String sql = "SELECT COUNT(DISTINCT p.id) FROM page p JOIN event e ON p.event_id = e.id WHERE e.book_id = ?";
         return jdbcTemplate.queryForObject(sql, Integer.class, bookId);
+    }
+
+    /**
+     * 刷新内容改动时间（只动 content_updated_at，不碰 updated_at；书不存在时是空操作）
+     */
+    public void touchContent(Long bookId) {
+        jdbcTemplate.update("UPDATE book SET content_updated_at = ? WHERE id = ?",
+                java.time.Instant.now().toString(), bookId);
     }
 
 }

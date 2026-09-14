@@ -19,7 +19,12 @@ public enum ErrorCode {
     RELATION_GRAPH_NOT_FOUND(1004, "关系图不存在"),
     INVALID_SORT_ORDER(1005, "无效的排序顺序"),
     DUPLICATE_TITLE(1006, "标题已存在"),
-    INVALID_OPERATION(1007, "无效的操作");
+    INVALID_OPERATION(1007, "无效的操作"),
+    FAMILY_TREE_NOT_FOUND(1008, "族谱图不存在"),
+
+    // 封面上传（与 OpenAPI 文档 10002/10003 对齐）
+    COVER_FORMAT_NOT_SUPPORTED(10002, "图片格式不支持"),
+    COVER_TOO_LARGE(10003, "图片大小超过限制");
 
     private final Integer code;
     private final String message;

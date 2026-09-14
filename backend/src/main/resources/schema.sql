@@ -8,7 +8,10 @@ CREATE TABLE IF NOT EXISTS book (
                                     cover_text  TEXT,
                                     sort_order  INTEGER NOT NULL DEFAULT 0,
                                     created_at  TEXT    NOT NULL,
-                                    updated_at  TEXT    NOT NULL
+                                    updated_at  TEXT    NOT NULL,
+                                    -- 内容最后改动时间：事件/页面/画布/关系图/族谱图变化才刷新，
+                                    -- 改书名/换封面/书架排序不刷新。老库由 SqliteConfig 迁移补列，可空。
+                                    content_updated_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS event (
@@ -21,6 +24,10 @@ CREATE TABLE IF NOT EXISTS event (
                                      FOREIGN KEY (book_id) REFERENCES book(id) ON DELETE CASCADE
     );
 
+-- page.canvas_data：整块画布 JSON（TEXT，SQLite 无长度限制，服务端兜底 1MB）
+--   结构：{ "background": "plain", "objects": [], "relationships": [], "annotations": [], "timelines": [] }
+--   读写均为整体覆盖，一次 UPDATE 即一次完整替换，天然事务性。
+--   annotation.content 存 HTML 片段；timeline.x / timeline.y 为面板坐标（可空）。
 CREATE TABLE IF NOT EXISTS page (
                                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
                                     event_id    INTEGER NOT NULL,
@@ -48,3 +55,21 @@ CREATE INDEX IF NOT EXISTS idx_relation_graph_book   ON relation_graph(book_id);
 CREATE INDEX IF NOT EXISTS idx_book_sort             ON book(sort_order);
 CREATE INDEX IF NOT EXISTS idx_event_sort            ON event(book_id, sort_order);
 CREATE INDEX IF NOT EXISTS idx_page_sort             ON page(event_id, sort_order);
+CREATE TABLE IF NOT EXISTS family_tree (
+                                           id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                                           book_id     INTEGER NOT NULL,
+                                           name        TEXT    NOT NULL,
+                                           data        TEXT    NOT NULL DEFAULT '{"members":[],"relations":[]}',
+                                           created_at  TEXT    NOT NULL,
+                                           updated_at  TEXT    NOT NULL,
+                                           FOREIGN KEY (book_id) REFERENCES book(id) ON DELETE CASCADE
+    );
+
+CREATE INDEX IF NOT EXISTS idx_family_tree_book ON family_tree(book_id);
+
+-- 单用户资料（单机单用户，固定 id=1 一行，GET 无记录时服务层返回默认值）
+CREATE TABLE IF NOT EXISTS user_profile (
+                                            id           INTEGER PRIMARY KEY,
+                                            display_name TEXT NOT NULL DEFAULT '用户',
+                                            theme        TEXT NOT NULL DEFAULT 'light'
+);

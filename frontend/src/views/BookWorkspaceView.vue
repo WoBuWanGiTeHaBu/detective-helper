@@ -1,7 +1,7 @@
 <template>
   <div class="workspace">
-    <!-- ═══════════════ 左侧栏 372 ═══════════════ -->
-    <aside class="sidebar">
+    <!-- ═══════════════ 左侧栏 ═══════════════ -->
+    <aside class="sidebar" :style="{ width: `${sideW}px` }">
       <!-- 侧栏头部 -->
       <div class="side-head">
         <button class="back-row" type="button" @click="goBack">
@@ -20,10 +20,10 @@
 
       <div class="side-divider" />
 
-      <!-- ═══ 两列容器：event 列 180 + page 列 192 = 372 ═══ -->
+      <!-- ═══ 两列容器：event 列 + page 列，中间分隔可拖宽 ═══ -->
       <div class="cols">
         <!-- ── event 列 ── -->
-        <section class="col-event">
+        <section class="col-event" :style="{ width: `${eventColW}px` }">
           <div class="col-head">event</div>
 
           <div class="col-body">
@@ -81,6 +81,9 @@
             </button>
           </div>
         </section>
+
+        <!-- ── 列宽拖柄 ── -->
+        <div class="col-resize" title="拖动调整列宽" @mousedown.stop.prevent="startColResize" />
 
         <!-- ── page 列 ── -->
         <section class="col-page">
@@ -148,7 +151,7 @@
 
       <!-- 扩展功能入口（关系图 / 族谱） -->
       <div class="ext-rail">
-        <button class="ext-btn" type="button" @click="openRelationGraphs">
+        <button class="ext-btn" type="button" @click="openExt('relation')">
           <svg viewBox="0 0 14 14" fill="none">
             <circle cx="3.4" cy="3.6" r="1.9" stroke="currentColor" stroke-width="1.2" />
             <circle cx="10.6" cy="3.6" r="1.9" stroke="currentColor" stroke-width="1.2" />
@@ -165,7 +168,7 @@
           </svg>
           <span>自适应时间线</span>
         </button>
-        <button class="ext-btn" type="button" @click="openFamilyTree">
+        <button class="ext-btn" type="button" @click="openExt('family')">
           <svg viewBox="0 0 14 14" fill="none">
             <rect x="5.2" y="1.6" width="3.6" height="3" rx="1" stroke="currentColor" stroke-width="1.2" />
             <rect x="1.4" y="9.4" width="3.6" height="3" rx="1" stroke="currentColor" stroke-width="1.2" />
@@ -176,6 +179,14 @@
         </button>
       </div>
     </aside>
+
+    <!-- 侧栏整体宽度拖柄：拖动时 event + page 两列一起变宽 / 变窄 -->
+    <div
+      class="side-resize"
+      :class="{ active: sideResizing }"
+      title="拖动调整侧栏宽度"
+      @mousedown.stop.prevent="startSideResize"
+    />
 
     <!-- ═══════════════ 主工作区 ═══════════════ -->
     <section class="main">
@@ -204,14 +215,14 @@
         </div>
       </header>
 
-      <!-- 画布区 -->
+      <!-- 画布区：外框固定，内容在 .canvas-viewport 里滚 -->
       <div
         ref="canvasRef"
         class="canvas-area"
-        :class="[
-          { grabbing: panning, 'has-bg': currentPageId != null },
-          currentPageId != null ? `bg-${bgMode}` : ''
-        ]"
+        :class="{
+          grabbing: contentMoving || viewPanning,
+          'mode-content': activeTool === 'moveContent'
+        }"
         @mousedown="onCanvasMouseDown"
         @wheel.ctrl.prevent="onWheel"
       >
@@ -230,13 +241,35 @@
         </div>
 
         <template v-else>
-          <!-- 背景层：纯色 / 点阵 / 方格 / 横线 -->
-          <svg
-            v-if="bgMode !== 'plain'"
-            class="grid-layer"
-            :width="stageW"
-            :height="stageH"
-          >
+          <!-- 滚动视口：画布尺寸大于可视区域时，超出部分在这里滚（滚轮 / 滚动条） -->
+          <div ref="canvasScrollRef" class="canvas-viewport">
+            <!-- 占位层：尺寸 = 纸张 ∪ 内容包围盒（含负坐标的历史内容），滚动条按它算 -->
+            <div
+              class="canvas-scroll"
+              :style="{ width: `${scrollBox.w}px`, height: `${scrollBox.h}px` }"
+            >
+              <!-- 原点层：画布 (0,0) 在滚动盒子里的落点。纸张 / 网格 / 内容都挂在这里，
+                   内容坐标一个不用改，负坐标的老对象也能滚到 -->
+              <div
+                class="canvas-origin"
+                :style="{
+                  left: `${scrollBox.offsetX}px`,
+                  top: `${scrollBox.offsetY}px`
+                }"
+              >
+              <!-- 纸张边界：这张「纸」多大，内容的活动范围就是多大 -->
+              <div
+                class="canvas-paper"
+                :style="{ width: `${stageScaledW}px`, height: `${stageScaledH}px` }"
+              />
+
+              <!-- 背景层：纯色 / 点阵 / 方格 / 横线 -->
+              <svg
+                v-if="bgMode !== 'plain'"
+                class="grid-layer"
+                :width="stageScaledW"
+                :height="stageScaledH"
+              >
             <defs>
               <!-- 点阵 -->
               <pattern
@@ -271,14 +304,14 @@
               <!-- 横线 -->
               <pattern
                 id="bg-line"
-                :width="stageW"
+                :width="stageScaledW"
                 :height="24 * zoom"
                 patternUnits="userSpaceOnUse"
               >
                 <line
                   x1="0"
                   :y1="24 * zoom"
-                  :x2="stageW"
+                  :x2="stageScaledW"
                   :y2="24 * zoom"
                   stroke="#E8E9EA"
                   stroke-width="1"
@@ -292,15 +325,19 @@
             />
           </svg>
 
-          <!-- 内容层（拖动 / 缩放） -->
+          <!-- 内容层（缩放，位置由 .canvas-scroll 承载滚动） -->
           <div
             class="stage"
             :style="{
-              transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})`
+              transform: `scale(${zoom})`
             }"
           >
             <!-- 连线 -->
-            <svg class="edge-layer" :width="stageW" :height="stageH">
+            <svg
+              class="edge-layer"
+              :width="stageW"
+              :height="stageH"
+            >
               <defs>
                 <marker id="arrow-end" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
                   <polygon points="0 0, 9 4.5, 0 9" fill="#8C877E" />
@@ -316,6 +353,7 @@
                 :relationship="rel"
                 :source="objectById(rel.source)"
                 :target="objectById(rel.target)"
+                :offset="relOffsets[rel.id] ?? 0"
                 @edit="openRelationDialog"
               />
 
@@ -333,7 +371,11 @@
             </svg>
 
             <!-- 节点 -->
-            <svg class="node-layer" :width="stageW" :height="stageH">
+            <svg
+              class="node-layer"
+              :width="stageW"
+              :height="stageH"
+            >
               <CanvasNode
                 v-for="obj in canvas.objects"
                 :key="obj.id"
@@ -381,21 +423,37 @@
                 @update-point="onUpdateTimelinePoint"
                 @remove-point="onRemoveTimelinePoint"
                 @move="onTimelineMove"
+                @resize="onTimelineResize"
                 @close="onTimelineClose"
               />
             </div>
+              </div>
+            </div>
+          </div>
           </div>
 
-          <!-- 浮动工具条 -->
-          <div class="toolbar">
+          <!-- 浮动工具条：最上面的箭头就是握把，按住可拖动整条工具栏 -->
+          <div
+            ref="toolbarRef"
+            class="toolbar"
+            :class="{ 'tb-dragging': tbDragging, 'tb-pinned': toolbarPinned }"
+            :style="{ left: `${toolbarPos.x}px`, top: `${toolbarPos.y}px` }"
+          >
             <template v-for="tool in TOOLS" :key="tool.key">
               <div v-if="tool.dividerBefore" class="tb-sep" />
               <div class="tb-slot">
                 <button
                   class="tb-btn"
                   type="button"
-                  :class="{ active: activeTool === tool.key || (tool.key === 'relation' && relPopOpen) }"
-                  :title="tool.label"
+                  :class="{
+                    active:
+                      activeTool === tool.key ||
+                      (tool.key === 'relation' && relPopOpen) ||
+                      (tool.key === 'canvasSize' && sizePopOpen),
+                    grip: tool.key === 'select'
+                  }"
+                  :title="tool.key === 'select' ? GRIP_TITLE : tool.label"
+                  @mousedown.stop="onToolMouseDown($event, tool.key)"
                   @click="onToolClick(tool.key)"
                 >
                   <span v-html="tool.icon" />
@@ -432,6 +490,69 @@
                       </svg>
                       <span>{{ k.label }}</span>
                     </button>
+                  </div>
+                </transition>
+
+                <!-- 画布尺寸：改这张「纸」多大；内容坐标不动，超出部分用滚轮看 -->
+                <transition name="fade">
+                  <div
+                    v-if="tool.key === 'canvasSize' && sizePopOpen"
+                    class="size-pop"
+                    @mousedown.stop
+                  >
+                    <div class="size-pop-title">画布尺寸</div>
+                    <div class="size-fields">
+                      <label class="size-field">
+                        <span class="size-field-label">宽</span>
+                        <input
+                          v-model.number="sizeDraft.w"
+                          class="size-input"
+                          type="number"
+                          :min="MIN_CANVAS_W"
+                          :max="MAX_CANVAS_W"
+                          @keyup.enter="applyCanvasSize"
+                        />
+                      </label>
+                      <span class="size-x">×</span>
+                      <label class="size-field">
+                        <span class="size-field-label">高</span>
+                        <input
+                          v-model.number="sizeDraft.h"
+                          class="size-input"
+                          type="number"
+                          :min="MIN_CANVAS_H"
+                          :max="MAX_CANVAS_H"
+                          @keyup.enter="applyCanvasSize"
+                        />
+                      </label>
+                    </div>
+
+                    <div class="size-pop-sub">常用尺寸</div>
+                    <button
+                      v-for="p in CANVAS_PRESETS"
+                      :key="p.key"
+                      type="button"
+                      class="rel-opt size-opt"
+                      :class="{ active: sizeDraft.w === p.w && sizeDraft.h === p.h }"
+                      @click="pickSizePreset(p)"
+                    >
+                      <span>{{ p.label }}</span>
+                      <span class="size-opt-value">{{ p.w }} × {{ p.h }}</span>
+                    </button>
+
+                    <div class="size-pop-foot">
+                      <button type="button" class="size-btn ghost" @click="resetCanvasSize">
+                        恢复默认
+                      </button>
+                      <button
+                        type="button"
+                        class="size-btn primary"
+                        :disabled="!sizeDirty"
+                        @click="applyCanvasSize"
+                      >
+                        应用
+                      </button>
+                    </div>
                   </div>
                 </transition>
               </div>
@@ -491,7 +612,7 @@
                 <div v-if="bgOpen" class="bg-pop" @mousedown.stop>
                   <div class="bg-pop-title">
                     笔记背景
-                    <span class="bg-pop-note">本地偏好 · 不同步</span>
+                    <span class="bg-pop-note">随笔记保存</span>
                   </div>
                   <button
                     v-for="opt in BG_OPTIONS"
@@ -515,116 +636,477 @@
       </div>
     </section>
 
-    <!-- ═══════════════ 右侧：关系图抽屉 ═══════════════ -->
+    <!-- ═══════════════ 右侧：关系图 / 族谱图 抽屉 ═══════════════ -->
     <transition name="slide">
-      <div v-if="graphDrawer" class="drawer">
+      <div
+        v-if="extDrawer"
+        ref="drawerRef"
+        class="drawer"
+        :class="{ 'dr-resizing': drawerResizing }"
+        :style="{
+          width: `${drawerW}px`,
+          height: drawerH == null ? undefined : `${drawerH}px`,
+          bottom: drawerH == null ? '0' : 'auto'
+        }"
+      >
+        <!-- 尺寸拖柄：左缘调宽、下缘调高、左下角两者一起 -->
+        <div class="dr-grip dr-grip-x" title="拖动调整宽度" @mousedown="onDrawerResizeStart($event, 'x')" />
+        <div class="dr-grip dr-grip-y" title="拖动调整高度" @mousedown="onDrawerResizeStart($event, 'y')" />
+        <div
+          class="dr-grip dr-grip-xy"
+          title="拖动同时调整宽度与高度"
+          @mousedown="onDrawerResizeStart($event, 'both')"
+        />
+
         <div class="drawer-head">
-          <h2 class="drawer-title">人物关系图</h2>
-          <button class="drawer-close" type="button" @click="graphDrawer = false">
+          <button
+            v-if="extMode === 'detail'"
+            class="drawer-back"
+            type="button"
+            title="返回列表"
+            @click="backToExtList"
+          >
+            <svg viewBox="0 0 14 14" fill="none">
+              <path d="M8.6 3 4.6 7l4 4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+          </button>
+          <h2 class="drawer-title">{{ extTitle }}</h2>
+          <button class="drawer-size-reset" type="button" title="恢复默认尺寸" @click="resetDrawerSize">
+            <svg viewBox="0 0 14 14" fill="none">
+              <path d="M2.6 5.2v-2.6h2.6M11.4 8.8v2.6H8.8" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+              <path d="M11 5.4 8.2 8.2M3 8.6l2.8-2.8" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" opacity="0.5" />
+            </svg>
+          </button>
+          <button class="drawer-close" type="button" @click="extDrawer = false">
             <svg viewBox="0 0 12 12" fill="none">
               <path d="m3 3 6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
             </svg>
           </button>
         </div>
 
-        <!-- 顶部工具区 -->
-        <div class="drawer-tools">
-          <div class="tool-group">
-            <span class="tool-label">来源</span>
-            <select v-model="graphSource" class="mini-select">
-              <option value="auto">自动提取</option>
-              <option value="custom">自定义</option>
-            </select>
+        <!-- ══ 列表层：已有图 + 新增 ══ -->
+        <template v-if="extMode === 'list'">
+          <div class="drawer-actions">
+            <button class="primary-btn" type="button" :disabled="extLoading" @click="createExt">
+              <svg viewBox="0 0 12 12" fill="none">
+                <path d="M6 2.2v7.6M2.2 6h7.6" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" />
+              </svg>
+              新增{{ extKind === 'relation' ? '关系图' : '族谱图' }}
+            </button>
           </div>
 
-          <div class="tool-group">
-            <span class="tool-label">类型</span>
-            <div class="pill-group">
+          <div class="drawer-body">
+            <p v-if="!extList.length && !extLoading" class="drawer-empty">
+              <template v-if="extKind === 'relation'">
+                还没有关系图，点上方「新增关系图」创建，
+                <br />会自动提取画布里已有的对象与关系。
+              </template>
+              <template v-else>
+                还没有族谱图，点上方「新增族谱图」创建。
+                <br />族谱不做自动提取，成员全部手工添加。
+              </template>
+            </p>
+            <button
+              v-for="g in extList"
+              :key="g.id"
+              type="button"
+              class="graph-row"
+              @click="openExtDetail(g)"
+            >
+              <svg v-if="extKind === 'relation'" viewBox="0 0 18 18" fill="none">
+                <circle cx="5.4" cy="5.4" r="2.6" stroke="currentColor" stroke-width="1.3" />
+                <circle cx="12.6" cy="5.4" r="2.6" stroke="currentColor" stroke-width="1.3" />
+                <circle cx="9" cy="13.4" r="2.6" stroke="currentColor" stroke-width="1.3" />
+                <path d="M6.6 7.3 8.1 10.9M11.4 7.3 9.9 10.9" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+              </svg>
+              <svg v-else viewBox="0 0 18 18" fill="none">
+                <rect x="6.6" y="1.6" width="4.8" height="4" rx="1.2" stroke="currentColor" stroke-width="1.3" />
+                <rect x="1.6" y="12.4" width="4.8" height="4" rx="1.2" stroke="currentColor" stroke-width="1.3" />
+                <rect x="11.6" y="12.4" width="4.8" height="4" rx="1.2" stroke="currentColor" stroke-width="1.3" />
+                <path d="M9 5.6v3.2M4 12.4V8.8h10v3.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              <span class="graph-row-name">{{ g.name }}</span>
+              <span class="graph-row-time">{{ fmtGraphTime(g.updatedAt) }}</span>
+            </button>
+          </div>
+        </template>
+
+        <!-- ══ 详情层：查看 / 编辑某一张图（不影响画布） ══ -->
+        <template v-else>
+          <div class="drawer-tools">
+            <div class="tool-group">
+              <span class="tool-label">{{ extKind === 'relation' ? '类型' : '规模' }}</span>
+              <div v-if="extKind === 'relation'" class="pill-group">
+                <button
+                  v-for="f in GRAPH_FILTERS"
+                  :key="f.value"
+                  type="button"
+                  class="pill"
+                  :class="{ active: graphFilter === f.value }"
+                  @click="setGraphFilter(f.value)"
+                >
+                  {{ f.label }}
+                </button>
+              </div>
+              <span v-else class="graph-meta">
+                共 {{ familyLayout.generations }} 代 · {{ extNodes.length }} 位成员
+              </span>
+            </div>
+
+            <button
+              v-if="extKind === 'relation'"
+              class="ghost-btn xs extract-btn"
+              type="button"
+              :disabled="extLoading"
+              @click="reextractActiveGraph"
+            >
+              <svg viewBox="0 0 12 12" fill="none">
+                <path d="M9.6 4.2A3.6 3.6 0 1 0 9.9 7.2" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                <path d="M9.9 1.6v2.8H7.1" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" />
+              </svg>
+              从画布重新提取
+            </button>
+
+            <div class="dir-switch">
               <button
-                v-for="f in GRAPH_FILTERS"
-                :key="f.value"
                 type="button"
-                class="pill"
-                :class="{ active: graphFilter === f.value }"
-                @click="graphFilter = f.value"
+                class="dir-seg"
+                :class="{ active: extView === 'list' }"
+                @click="extView = 'list'"
               >
-                {{ f.label }}
+                列表
+              </button>
+              <button
+                type="button"
+                class="dir-seg"
+                :class="{ active: extView === 'graph' }"
+                @click="extView = 'graph'"
+              >
+                图形
               </button>
             </div>
           </div>
 
-          <div class="dir-switch">
-            <button
-              type="button"
-              class="dir-seg"
-              :class="{ active: graphView === 'list' }"
-              @click="graphView = 'list'"
-            >
-              列表
-            </button>
-            <button
-              type="button"
-              class="dir-seg"
-              :class="{ active: graphView === 'graph' }"
-              @click="graphView = 'graph'"
-            >
-              图形
-            </button>
-          </div>
-        </div>
+          <!-- 列表视图（可删） -->
+          <div v-if="extView === 'list'" class="drawer-body">
+            <div v-if="!extRows.length" class="drawer-empty">
+              {{
+                extKind === 'relation'
+                  ? relFilterEmpty
+                    ? '这个筛选下没有关系'
+                    : '这张图还没有关系'
+                  : '还没有亲属关系'
+              }}
+            </div>
+            <div v-for="row in extRows" :key="row.id" class="rel-row">
+              <span class="rel-name" :title="row.from">{{ row.from }}</span>
+              <span class="rel-word">{{ row.label }}</span>
+              <span class="rel-name" :title="row.to">{{ row.to }}</span>
+              <button class="row-del" type="button" title="删除这条关系" @click="removeExtRelation(row.id)">
+                <svg viewBox="0 0 12 12" fill="none">
+                  <path d="m3.2 3.2 5.6 5.6M8.8 3.2 3.2 8.8" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                </svg>
+              </button>
+            </div>
 
-        <!-- 列表视图 -->
-        <div v-if="graphView === 'list'" class="drawer-body">
-          <div v-if="!graphRows.length" class="drawer-empty">
-            还没有关系数据
-            <button class="link-btn" type="button" @click="extractFromCanvas">从画布提取</button>
-          </div>
-          <div v-for="row in graphRows" :key="row.id" class="rel-row">
-            <span class="rel-name" :title="row.from">{{ row.from }}</span>
-            <span class="rel-word">{{ row.label }}</span>
-            <span class="rel-name" :title="row.to">{{ row.to }}</span>
-          </div>
-        </div>
+            <!-- ① 对象 / 成员：先有人 / 物，才谈得上关系 -->
+            <div class="edge-add">
+              <div class="edge-add-title">
+                {{ extKind === 'relation' ? '对象' : '成员' }}
+                <span class="edge-add-note">{{ extNodes.length }} 个</span>
+              </div>
+              <div class="edge-add-row">
+                <input
+                  v-model="nodeDraft.name"
+                  class="mini-input"
+                  :placeholder="extKind === 'relation' ? '名称，如 张远山' : '姓名，如 沈砚清'"
+                  @keyup.enter="addExtNode"
+                />
+                <select
+                  v-if="extKind === 'relation'"
+                  v-model="nodeDraft.type"
+                  class="mini-select mini-select-s"
+                >
+                  <option value="person">人物</option>
+                  <option value="thing">事物</option>
+                  <option value="event">事件</option>
+                </select>
+                <select v-else v-model="nodeDraft.gender" class="mini-select mini-select-s">
+                  <option value="male">男</option>
+                  <option value="female">女</option>
+                  <option value="unknown">不详</option>
+                </select>
+                <button
+                  class="primary-btn sm"
+                  type="button"
+                  :disabled="!nodeDraft.name.trim()"
+                  @click="addExtNode"
+                >
+                  添加
+                </button>
+              </div>
+              <!-- 族谱额外记生卒年，便于按年代核对辈分 -->
+              <div v-if="extKind === 'family'" class="edge-add-row">
+                <input v-model="nodeDraft.birth" class="mini-input" placeholder="生年，如 1901" />
+                <input v-model="nodeDraft.death" class="mini-input" placeholder="卒年，可留空" />
+              </div>
+              <div v-if="extNodes.length" class="node-chips">
+                <span
+                  v-for="n in extNodes"
+                  :key="n.id"
+                  class="node-chip"
+                  :class="extKind === 'family' ? `g-${n.gender ?? 'unknown'}` : `k-${n.kind}`"
+                >
+                  {{ n.name }}
+                  <button type="button" title="删除该对象及其关系" @click="removeExtNode(n.id)">
+                    <svg viewBox="0 0 10 10" fill="none">
+                      <path d="m2.4 2.4 5.2 5.2M7.6 2.4 2.4 7.6" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" />
+                    </svg>
+                  </button>
+                </span>
+              </div>
+              <p v-else class="edge-add-empty">
+                {{ extKind === 'relation' ? '还没有对象，先在上面加一个' : '还没有成员，先在上面加一位' }}
+              </p>
+            </div>
 
-        <!-- 图形视图 -->
-        <div v-else class="drawer-body graph-body">
-          <svg :width="400" :height="460" class="graph-svg">
-            <line
-              v-for="e in graphEdges"
-              :key="e.id"
-              :x1="pos(e.source).x"
-              :y1="pos(e.source).y"
-              :x2="pos(e.target).x"
-              :y2="pos(e.target).y"
-              stroke="#8C877E"
-              stroke-width="1"
-              marker-end="url(#arrow-end)"
-            />
-            <g v-for="n in graphNodes" :key="n.id">
-              <rect
-                :x="pos(n.id).x - 52"
-                :y="pos(n.id).y - 16"
-                width="104"
-                height="32"
-                :rx="16"
-                fill="#E8EFEA"
-                stroke="#A6BFB0"
-                stroke-width="1"
-              />
-              <text
-                :x="pos(n.id).x"
-                :y="pos(n.id).y + 4"
-                text-anchor="middle"
-                class="graph-node-label"
-              >
-                {{ n.name }}
-              </text>
-            </g>
-            <text v-if="!graphNodes.length" x="200" y="230" text-anchor="middle" class="graph-empty">
-              还没有关系数据
-            </text>
-          </svg>
-        </div>
+            <!-- ② 关系 -->
+            <div class="edge-add">
+              <div class="edge-add-title">
+                {{ extKind === 'relation' ? '关系' : '亲属关系' }}
+                <span class="edge-add-note">{{ extEdges.length }} 条</span>
+              </div>
+              <div class="edge-add-row">
+                <select v-model="edgeDraft.source" class="mini-select">
+                  <option value="" disabled>{{ extKind === 'relation' ? '起点' : '父 / 母' }}</option>
+                  <option v-for="n in extNodes" :key="n.id" :value="n.id">{{ n.name }}</option>
+                </select>
+                <span class="edge-arr">→</span>
+                <select v-model="edgeDraft.target" class="mini-select">
+                  <option value="" disabled>{{ extKind === 'relation' ? '终点' : '子女 / 配偶' }}</option>
+                  <option v-for="n in extNodes" :key="n.id" :value="n.id">{{ n.name }}</option>
+                </select>
+              </div>
+              <div class="edge-add-row">
+                <template v-if="extKind === 'relation'">
+                  <input v-model="edgeDraft.label" class="mini-input" placeholder="关系说明，如 父子" />
+                  <select v-model="edgeDraft.type" class="mini-select mini-select-s">
+                    <option value="unidirectional">单向</option>
+                    <option value="bidirectional">双向</option>
+                    <option value="dashed">虚线</option>
+                  </select>
+                </template>
+                <select v-else v-model="familyRelType" class="mini-select">
+                  <option value="parent-child">父母 → 子女</option>
+                  <option value="spouse">配偶</option>
+                </select>
+                <button
+                  class="primary-btn sm"
+                  type="button"
+                  :disabled="!canAddExtRelation"
+                  @click="addExtRelation"
+                >
+                  添加
+                </button>
+              </div>
+              <p class="edge-add-hint">
+                {{
+                  extKind === 'relation'
+                    ? '同一对对象可以有多条关系，图形里会自动平行排开'
+                    : '族谱按「一代一行」排布：父母在上、子女在下，配偶并排'
+                }}
+              </p>
+            </div>
+          </div>
+
+          <!-- 图形视图 -->
+          <div v-else class="drawer-body graph-body">
+            <!-- ══ 关系图：中心切换式排布 ══ -->
+            <template v-if="extKind === 'relation'">
+              <div class="graph-hint">
+                <span>点任一对象，把它切成中心</span>
+                <button v-if="focusStack.length" class="link-btn" type="button" @click="backFocus">
+                  返回上一个中心
+                </button>
+                <button
+                  v-if="relFilterEmpty"
+                  class="link-btn"
+                  type="button"
+                  @click="graphFilter = 'all'"
+                >
+                  显示全部
+                </button>
+              </div>
+              <div :ref="bindGraphCanvas" class="graph-canvas">
+                <svg :width="graphBox.w" :height="graphBox.h" class="graph-svg">
+                  <defs>
+                    <marker id="drawer-arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto">
+                      <polygon points="0 0, 9 4.5, 0 9" fill="#8C877E" />
+                    </marker>
+                  </defs>
+                  <g v-for="e in drawerEdgeGeoms" :key="e.id">
+                    <line
+                      :x1="e.x1"
+                      :y1="e.y1"
+                      :x2="e.x2"
+                      :y2="e.y2"
+                      stroke="#8C877E"
+                      stroke-width="1"
+                      :stroke-dasharray="e.dash ? '5 4' : undefined"
+                      marker-end="url(#drawer-arrow)"
+                    />
+                    <text :x="e.lx" :y="e.ly" text-anchor="middle" class="edge-label">
+                      {{ e.label }}
+                    </text>
+                  </g>
+
+                  <!-- 人物：圆形 + 名字 / 事件：方框 / 事物：菱形 —— 三态在所有视图里保持一致 -->
+                  <g
+                    v-for="n in drawerNodes"
+                    :key="n.id"
+                    class="graph-node"
+                    :class="{ focus: n.focus }"
+                    @click="setFocus(n.id)"
+                  >
+                    <template v-if="n.kind === 'person'">
+                      <circle :cx="n.x" :cy="n.y" :r="n.r" class="gn-shape k-person" />
+                      <text :x="n.x" :y="n.y + 4" text-anchor="middle" class="node-name">
+                        {{ n.name }}
+                      </text>
+                    </template>
+                    <template v-else-if="n.kind === 'event'">
+                      <rect
+                        :x="n.x - 52"
+                        :y="n.y - 17"
+                        width="104"
+                        height="34"
+                        rx="8"
+                        class="gn-shape k-event"
+                      />
+                      <text :x="n.x" :y="n.y + 4" text-anchor="middle" class="node-name dark">
+                        {{ n.name }}
+                      </text>
+                    </template>
+                    <template v-else>
+                      <path :d="diamondPath(n.x, n.y, 62, 30)" class="gn-shape k-thing" />
+                      <text :x="n.x" :y="n.y + 4" text-anchor="middle" class="node-name dark">
+                        {{ n.name }}
+                      </text>
+                    </template>
+                  </g>
+
+                  <text
+                    v-if="!drawerNodes.length"
+                    :x="graphBox.w / 2"
+                    :y="graphBox.h / 2"
+                    text-anchor="middle"
+                    class="graph-empty"
+                  >
+                    {{
+                      !extNodes.length
+                        ? '还没有对象'
+                        : graphFilter === 'all'
+                          ? '这张图还没有关系'
+                          : '这个筛选下没有关系'
+                    }}
+                  </text>
+                </svg>
+              </div>
+
+              <div class="gn-legend">
+                <span class="gn-key k-person" />人物
+                <span class="gn-key k-thing" />事物
+                <span class="gn-key k-event" />事件
+                <span class="gn-sep" />
+                实心环 = 当前中心
+              </div>
+            </template>
+
+            <!-- ══ 族谱图：一代一行 ══ -->
+            <template v-else>
+              <div class="graph-hint">
+                <span>共 {{ familyLayout.generations }} 代 · 父母在上、子女在下</span>
+                <span v-if="familyScale < 1" class="graph-scale-note">
+                  已缩放 {{ Math.round(familyScale * 100) }}%
+                </span>
+              </div>
+              <div :ref="bindGraphCanvas" class="graph-canvas graph-canvas-scroll">
+                <svg
+                  :width="familyLayout.width * familyScale"
+                  :height="familyLayout.height * familyScale"
+                  :viewBox="`0 0 ${familyLayout.width} ${familyLayout.height}`"
+                  class="graph-svg"
+                >
+                  <g v-for="e in familyLayout.edges" :key="e.id">
+                    <path :d="e.path" class="fam-edge" :class="e.kind" />
+                  </g>
+                  <circle
+                    v-for="s in familyLayout.spouses"
+                    :key="s.id"
+                    :cx="s.x"
+                    :cy="s.y"
+                    r="3.2"
+                    class="fam-spouse"
+                  />
+                  <g v-for="n in familyLayout.nodes" :key="n.id">
+                    <rect
+                      :x="n.x"
+                      :y="n.y"
+                      :width="n.w"
+                      :height="n.h"
+                      rx="10"
+                      class="fam-node"
+                      :class="`g-${n.gender}`"
+                    />
+                    <text
+                      :x="n.x + n.w / 2"
+                      :y="n.y + (n.meta ? 16 : 21)"
+                      text-anchor="middle"
+                      class="fam-name"
+                    >
+                      {{ n.name }}
+                    </text>
+                    <text
+                      v-if="n.meta"
+                      :x="n.x + n.w / 2"
+                      :y="n.y + 28"
+                      text-anchor="middle"
+                      class="fam-meta"
+                    >
+                      {{ n.meta }}
+                    </text>
+                  </g>
+                  <text
+                    v-if="!familyLayout.nodes.length"
+                    x="190"
+                    y="120"
+                    text-anchor="middle"
+                    class="graph-empty"
+                  >
+                    还没有成员，切到「列表」添加
+                  </text>
+                </svg>
+              </div>
+
+              <div class="gn-legend">
+                <span class="gn-key g-male" />男
+                <span class="gn-key g-female" />女
+                <span class="gn-key g-unknown" />不详
+                <span class="gn-sep" />
+                实线 = 亲子 · 圆点 = 配偶
+              </div>
+            </template>
+          </div>
+
+          <div class="drawer-foot">
+            <button class="ghost-btn danger-btn" type="button" @click="removeExt">
+              删除这张{{ extKind === 'relation' ? '关系图' : '族谱图' }}
+            </button>
+            <span class="drawer-foot-note">
+              {{ extKind === 'relation' ? '这里的内容不会改动画布' : '族谱已存到云端，换设备也能打开' }}
+            </span>
+          </div>
+        </template>
       </div>
     </transition>
 
@@ -826,14 +1308,17 @@ import { Modal, message } from 'ant-design-vue'
 import { useWorkspaceStore, localId } from '@/stores/workspaceStore'
 import { useBookStore } from '@/stores/bookStore'
 import { relationGraphApi } from '@/api/relationGraph'
+import { familyTreeApi } from '@/api/familyTree'
 import type {
   Annotation,
   CanvasObject,
   CanvasTool,
   EventResponse,
-  GraphEdge,
-  GraphNode,
+  FamilyTreeResponse,
   ObjectShape,
+  RelationGraphData,
+  RelationGraphDetailResponse,
+  RelationGraphResponse,
   Relationship,
   RelationshipType,
   Timeline,
@@ -850,6 +1335,31 @@ import {
   setBg,
   type CanvasBg
 } from '@/utils/canvasBackground'
+import {
+  CANVAS_PRESETS,
+  DEFAULT_CANVAS_H,
+  DEFAULT_CANVAS_W,
+  MAX_CANVAS_H,
+  MAX_CANVAS_W,
+  MIN_CANVAS_H,
+  MIN_CANVAS_W,
+  clampSize,
+  getLocalSize,
+  setLocalSize,
+  type CanvasPreset
+} from '@/utils/canvasSize'
+import { bundleOffsets, normalFlip } from '@/utils/edgeBundle'
+import { neighborsOf, nodeShapeOf, personRadius, radialLayout, ringRadius } from '@/utils/graphLayout'
+import {
+  layoutFamilyTree,
+  newMemberId,
+  newRelationId,
+  type FamilyGender,
+  type FamilyMember,
+  type FamilyRelation,
+  type FamilyRelType,
+  type FamilyTree
+} from '@/utils/familyTree'
 
 const route = useRoute()
 const router = useRouter()
@@ -859,8 +1369,8 @@ const bookStore = useBookStore()
 const bookId = computed(() => Number(route.params.bookId))
 
 const canvasRef = ref<HTMLElement | null>(null)
-const stageW = ref(1600)
-const stageH = ref(1400)
+/** 画布滚动容器：滚动条挂在这里，尺寸 = 画布尺寸 × 缩放 */
+const canvasScrollRef = ref<HTMLElement | null>(null)
 
 const book = computed(() => workspaceStore.book)
 const events = computed(() => workspaceStore.events)
@@ -874,25 +1384,94 @@ const canvas = computed(() => workspaceStore.canvas)
 const eventCount = computed(() => workspaceStore.eventCount)
 const totalPageCount = computed(() => workspaceStore.totalPageCount)
 
+/* ---------------- 画布尺寸 ----------------
+ * 画布是一张有明确尺寸的「纸」，尺寸随画布存后端（canvasWidth / canvasHeight）；
+ * 后端还没这个字段时（首屏 / 老数据）回落到按 page 隔离的本机兜底值。
+ * 尺寸之外的内容不再挤压边界，而是由 .canvas-scroll 容器滚。
+ * ------------------------------------------ */
+const stageW = computed(
+  () => canvas.value.canvasWidth ?? getLocalSize(currentPageId.value).w
+)
+const stageH = computed(
+  () => canvas.value.canvasHeight ?? getLocalSize(currentPageId.value).h
+)
+/** 缩放后的纸张占位尺寸 */
+const stageScaledW = computed(() => Math.round(stageW.value * zoom.value))
+const stageScaledH = computed(() => Math.round(stageH.value * zoom.value))
+
+/**
+ * 滚动范围 = 纸张 ∪ 内容包围盒（各留一圈余量）。
+ *
+ * 为什么要连带内容一起算：历史数据里可能有落在纸张之外、甚至坐标为负的对象
+ * （上一版无限画布是允许往左上拖的）。固定原点的话负坐标永远滚不到，对象就"消失"了。
+ * 所以这里给滚动盒子一个原点偏移：画布 (0,0) 落在盒子里的 offsetX / offsetY 处，
+ * 纸张与内容层都按这个偏移定位，坐标本身一个都不用改。
+ */
+const SCROLL_PAD = 140
+
+const scrollBox = computed(() => {
+  let minX = 0
+  let minY = 0
+  let maxX = stageW.value
+  let maxY = stageH.value
+  const grow = (x: number, y: number, w: number, h: number) => {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return
+    minX = Math.min(minX, x)
+    minY = Math.min(minY, y)
+    maxX = Math.max(maxX, x + (Number.isFinite(w) ? w : 0))
+    maxY = Math.max(maxY, y + (Number.isFinite(h) ? h : 0))
+  }
+  for (const o of canvas.value.objects) grow(o.x, o.y, o.width, o.height)
+  for (const a of canvas.value.annotations) grow(a.x, a.y, a.width, a.height)
+  for (const t of canvas.value.timelines) {
+    grow(t.x ?? 0, t.y ?? 0, t.width ?? 760, t.height ?? 300)
+  }
+
+  const ox = Math.min(0, minX) - SCROLL_PAD
+  const oy = Math.min(0, minY) - SCROLL_PAD
+  const z = zoom.value || 1
+  return {
+    /** 画布 (0,0) 在滚动盒子里的位置（屏幕 px） */
+    offsetX: Math.round(-ox * z),
+    offsetY: Math.round(-oy * z),
+    w: Math.max(1, Math.round((maxX + SCROLL_PAD - ox) * z)),
+    h: Math.max(1, Math.round((maxY + SCROLL_PAD - oy) * z))
+  }
+})
+
+/** 把视口滚到纸张左上角（切页 / 改尺寸 / 适配时用） */
+function scrollToPaper() {
+  requestAnimationFrame(() => {
+    const v = canvasScrollRef.value
+    if (!v) return
+    const b = scrollBox.value
+    v.scrollLeft = b.offsetX
+    v.scrollTop = b.offsetY
+  })
+}
+
+/** 当前可视区域中心对应的画布坐标（新对象落位用） */
+function viewportCenterInCanvas(): { x: number; y: number } {
+  const v = canvasScrollRef.value
+  const z = zoom.value || 1
+  if (!v) return { x: stageW.value / 2, y: stageH.value / 2 }
+  const b = scrollBox.value
+  return {
+    x: (v.scrollLeft + v.clientWidth / 2 - b.offsetX) / z,
+    y: (v.scrollTop + v.clientHeight / 2 - b.offsetY) / z
+  }
+}
+
 /* ---------------- 初始化 ---------------- */
 onMounted(async () => {
   await workspaceStore.loadWorkspace(bookId.value)
-  measureStage()
-  window.addEventListener('resize', measureStage)
+  scrollToPaper()
   document.addEventListener('click', closeCtxMenu)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('resize', measureStage)
   document.removeEventListener('click', closeCtxMenu)
 })
-
-function measureStage() {
-  const el = canvasRef.value
-  if (!el) return
-  stageW.value = Math.max(el.clientWidth, 1600)
-  stageH.value = Math.max(el.clientHeight, 1400)
-}
 
 function goBack() {
   workspaceStore.clearWorkspace()
@@ -1008,6 +1587,64 @@ async function onPageDrop(index: number) {
 function onPageDragEnd() {
   dragPageIndex.value = null
   dragOverPageIndex.value = null
+}
+
+/* ---------------- 侧栏宽度调整 ----------------
+ * 两个拖柄各管一段：
+ *  ① 侧栏右缘 → 改整条侧栏宽度（event + page 两列一起变）
+ *  ② event / page 中间 → 只改 event 列宽，page 列自动占满剩下的
+ * ------------------------------------------ */
+const COL_W_KEY = 'wb.colW.event'
+const SIDE_W_KEY = 'wb.colW.side'
+const eventColW = ref(Number(localStorage.getItem(COL_W_KEY)) || 180)
+const sideW = ref(Number(localStorage.getItem(SIDE_W_KEY)) || 372)
+const sideResizing = ref(false)
+const SIDE_MIN = 260
+const SIDE_MAX = 760
+/** page 列保留的最小宽度（列头 + 一个图标 + 一行字） */
+const PAGE_MIN = 190
+
+function startColResize(e: MouseEvent) {
+  const sx = e.clientX
+  const ow = eventColW.value
+  const maxEvent = Math.max(130, sideW.value - PAGE_MIN)
+
+  const onMove = (ev: MouseEvent) => {
+    eventColW.value = Math.min(maxEvent, Math.max(130, Math.round(ow + ev.clientX - sx)))
+  }
+  const onUp = () => {
+    localStorage.setItem(COL_W_KEY, String(eventColW.value))
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+function startSideResize(e: MouseEvent) {
+  const sx = e.clientX
+  const ow = sideW.value
+  sideResizing.value = true
+
+  const onMove = (ev: MouseEvent) => {
+    const next = Math.min(SIDE_MAX, Math.max(SIDE_MIN, Math.round(ow + ev.clientX - sx)))
+    sideW.value = next
+    // 侧栏变窄时顺带把过宽的 event 列收回来，别把 page 列挤没
+    if (eventColW.value > next - PAGE_MIN) {
+      eventColW.value = Math.max(130, next - PAGE_MIN)
+    }
+  }
+  const onUp = () => {
+    sideResizing.value = false
+    localStorage.setItem(SIDE_W_KEY, String(sideW.value))
+    localStorage.setItem(COL_W_KEY, String(eventColW.value))
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
 }
 
 /* ---------------- 通用弹窗 prompt ---------------- */
@@ -1194,11 +1831,11 @@ async function submitBook() {
   try {
     await bookStore.updateBook(bookId.value, {
       name,
-      coverText: bookDialog.coverText.trim() || null
+      coverText: bookDialog.coverText.trim()
     })
     if (book.value) {
       book.value.name = name
-      book.value.coverText = bookDialog.coverText.trim() || null
+      book.value.coverText = bookDialog.coverText.trim()
     }
     bookDialog.open = false
     message.success('已保存')
@@ -1207,15 +1844,21 @@ async function submitBook() {
   }
 }
 
-/* ---------------- 画布：平移 / 缩放 ---------------- */
-const pan = ref({ x: 0, y: 0 })
+/* ---------------- 画布：缩放 + 滚动 ----------------
+ * 画布尺寸是「纸」的尺寸（见上），视口不再无限生长：
+ *   滚轮（非 ctrl）→ 原生滚动；ctrl + 滚轮 / 缩放条 → 改 zoom；
+ *   缩放靠内层 .canvas-scroll 的占位尺寸承载（stage × zoom），
+ *   所以滚动条长度、可滚范围都跟着缩放一起变。
+ * ------------------------------------------ */
 const zoom = ref(1)
-const panning = ref(false)
-let panStart = { x: 0, y: 0 }
-let panOrigin = { x: 0, y: 0 }
 
-/* ---------------- 画布背景（本地偏好，不入后端） ---------------- */
-const bgMode = ref<CanvasBg>(getBg(currentPageId.value))
+/* ---------------- 画布背景（随画布存进后端 canvas.background） ---------------- */
+/** 优先用后端下发的 background，未设置时回落到本地偏好 */
+const bgMode = computed<CanvasBg>(() => {
+  const v = canvas.value.background
+  if (v && BG_OPTIONS.some((o) => o.key === v)) return v as CanvasBg
+  return getBg(currentPageId.value)
+})
 const bgOpen = ref(false)
 
 /* ---------------- 对象资料弹窗（人物 / 事件 / 事物） ---------------- */
@@ -1347,11 +1990,11 @@ async function submitNodeDialog() {
   }
 
   const size = NODE_SIZE[kind]
-  // 落在当前视口中心；多个节点之间做阶梯错位，避免完全重叠
-  const rect = canvasRef.value?.getBoundingClientRect()
+  // 落在当前可视区域中心；多个节点之间做阶梯错位，避免完全重叠
   const n = canvas.value.objects.length
-  const cx = rect ? (rect.width / 2 - pan.value.x) / zoom.value : 420
-  const cy = rect ? (rect.height / 2 - pan.value.y) / zoom.value : 300
+  const center = viewportCenterInCanvas()
+  const cx = center.x
+  const cy = center.y
 
   const obj: CanvasObject = {
     id: localId(kind === 'person' ? 'obj' : kind === 'event' ? 'evt' : 'thg'),
@@ -1374,70 +2017,362 @@ async function submitNodeDialog() {
   message.success(`${KIND_LABEL[kind]}已添加`)
 }
 
-// 切 page 时读取该 page 自己的背景设置
-watch(currentPageId, (id) => {
-  bgMode.value = getBg(id)
-})
-
 function chooseBg(bg: CanvasBg) {
-  bgMode.value = bg
-  if (currentPageId.value != null) setBg(currentPageId.value, bg)
+  if (currentPageId.value == null) return
+  // 随画布一起存到后端（切页 / 换设备都能跟上）
+  workspaceStore.setCanvasBackground(bg)
+  // 本地仍留一份，作为离线或后端不可用时的兜底
+  setBg(currentPageId.value, bg)
+  bgOpen.value = false
 }
 
 const zoomLabel = computed(() => `${Math.round(zoom.value * 100)}%`)
 
+/** 画布上这些区域有自己的交互，不能被「移动内容」抢走 */
+const BLOCKING_SELECTOR = '.anno, .tl-host, .node, .toolbar, button, input, textarea, select'
+
+/** 画布的空白落点：只有点在这些地方才算「点了空白」 */
+function isBlankTarget(target: HTMLElement): boolean {
+  return (
+    target.classList.contains('canvas-area') ||
+    target.classList.contains('canvas-viewport') ||
+    target.classList.contains('canvas-scroll') ||
+    target.classList.contains('canvas-origin') ||
+    target.classList.contains('canvas-paper') ||
+    target.classList.contains('stage') ||
+    target.classList.contains('grid-layer')
+  )
+}
+
 function onCanvasMouseDown(e: MouseEvent) {
   const target = e.target as HTMLElement
-  // 只在空白 / 网格层上平移
-  if (!target.classList.contains('canvas-area') && !target.classList.contains('grid-layer')) return
-  panning.value = true
-  panStart = { x: e.clientX, y: e.clientY }
-  panOrigin = { ...pan.value }
-  selectedId.value = null
+
+  // ①「移动内容」工具：整体平移当前页的对象 / 注解 / 时间线（坐标真的会改）
+  if (activeTool.value === 'moveContent') {
+    if (target.closest(BLOCKING_SELECTOR)) return
+    startContentMove(e)
+    return
+  }
+
+  // ②箭头工具：空白处按住拖动 = 平移视野；没拖动（纯单击）= 取消选中
+  if (isBlankTarget(target)) startViewPan(e)
+}
+
+/* ---------------- 移动视野（箭头工具的默认能力） ----------------
+ * 箭头 = 「选择」，同时保留原本的视野平移：在空白处按住拖动，
+ * 只动滚动条（视口），内容坐标一个不改。纯单击（位移 < 4px）
+ * 才算「点了空白」，取消选中。
+ * ------------------------------------------ */
+const viewPanning = ref(false)
+let vpStart = { x: 0, y: 0, sl: 0, st: 0 }
+let vpMoved = false
+
+function startViewPan(e: MouseEvent) {
+  const v = canvasScrollRef.value
+  if (!v) return
+  vpStart = { x: e.clientX, y: e.clientY, sl: v.scrollLeft, st: v.scrollTop }
+  vpMoved = false
+  viewPanning.value = true
   window.addEventListener('mousemove', onCanvasMove)
   window.addEventListener('mouseup', onCanvasUp)
 }
 
 function onCanvasMove(e: MouseEvent) {
-  if (!panning.value) return
-  pan.value = {
-    x: panOrigin.x + (e.clientX - panStart.x),
-    y: panOrigin.y + (e.clientY - panStart.y)
+  if (viewPanning.value) {
+    const v = canvasScrollRef.value
+    if (!v) return
+    const dx = e.clientX - vpStart.x
+    const dy = e.clientY - vpStart.y
+    if (Math.abs(dx) > 3 || Math.abs(dy) > 3) vpMoved = true
+    v.scrollLeft = vpStart.sl - dx
+    v.scrollTop = vpStart.st - dy
+    return
   }
+  if (contentMoving.value) applyContentMove(e)
 }
 
 function onCanvasUp() {
-  panning.value = false
   window.removeEventListener('mousemove', onCanvasMove)
   window.removeEventListener('mouseup', onCanvasUp)
+  if (viewPanning.value) {
+    viewPanning.value = false
+    // 没真正拖动 = 单击空白，取消选中
+    if (!vpMoved) selectedId.value = null
+    return
+  }
+  if (contentMoving.value) {
+    contentMoving.value = false
+    cmSnapshot = null
+    // 真的挪动了才落盘，纯点一下不产生多余的 PUT
+    if (cmMoved) {
+      cmMoved = false
+      void saveNow()
+    }
+  }
+}
+
+/* ---------------- 移动内容（独立工具，坐标会真的改） ----------------
+ * 把当前页的对象 / 注解 / 时间线整体平移，拖动期间只改内存，抬手才存，
+ * 避免每帧一次请求。
+ * ------------------------------------------ */
+const contentMoving = ref(false)
+let cmStart = { x: 0, y: 0 }
+let cmMoved = false
+let cmSnapshot: {
+  objects: { ref: CanvasObject; x: number; y: number }[]
+  annotations: { ref: Annotation; x: number; y: number }[]
+  timelines: { ref: Timeline; x: number; y: number }[]
+} | null = null
+
+function startContentMove(e: MouseEvent) {
+  cmStart = { x: e.clientX, y: e.clientY }
+  cmMoved = false
+  cmSnapshot = {
+    objects: canvas.value.objects.map((o) => ({ ref: o, x: o.x, y: o.y })),
+    annotations: canvas.value.annotations.map((a) => ({ ref: a, x: a.x, y: a.y })),
+    timelines: canvas.value.timelines.map((t) => ({ ref: t, x: t.x ?? 0, y: t.y ?? 0 }))
+  }
+  contentMoving.value = true
+  selectedId.value = null
+  window.addEventListener('mousemove', onCanvasMove)
+  window.addEventListener('mouseup', onCanvasUp)
+}
+
+function applyContentMove(e: MouseEvent) {
+  const snap = cmSnapshot
+  if (!snap) return
+  const z = zoom.value || 1
+  const dx = Math.round((e.clientX - cmStart.x) / z)
+  const dy = Math.round((e.clientY - cmStart.y) / z)
+  if (dx === 0 && dy === 0) return
+  cmMoved = true
+  snap.objects.forEach((s) => {
+    s.ref.x = s.x + dx
+    s.ref.y = s.y + dy
+  })
+  snap.annotations.forEach((s) => {
+    s.ref.x = s.x + dx
+    s.ref.y = s.y + dy
+  })
+  snap.timelines.forEach((s) => {
+    s.ref.x = s.x + dx
+    s.ref.y = s.y + dy
+  })
+}
+
+/* ---------------- 缩放 ----------------
+ * ctrl + 滚轮（在模板上 .prevent 掉了浏览器缩放）或缩放条按钮。
+ * 缩放只改 zoom，滚动范围由 .canvas-scroll 的占位尺寸自动跟随。
+ * ------------------------------------------ */
+const ZOOM_MIN = 0.25
+const ZOOM_MAX = 3
+
+/** 缩放时保持「视口中心那张纸的位置不变」，不然会跳到左上角 */
+function setZoom(next: number) {
+  const view = canvasScrollRef.value
+  const prev = zoom.value
+  const z = Math.min(Math.max(next, ZOOM_MIN), ZOOM_MAX)
+  if (z === prev) return
+  if (view) {
+    const cx = view.clientWidth / 2
+    const cy = view.clientHeight / 2
+    const rx = (view.scrollLeft + cx) / prev
+    const ry = (view.scrollTop + cy) / prev
+    zoom.value = z
+    requestAnimationFrame(() => {
+      view.scrollLeft = rx * z - cx
+      view.scrollTop = ry * z - cy
+    })
+  } else {
+    zoom.value = z
+  }
 }
 
 function onWheel(e: WheelEvent) {
-  const factor = e.deltaY > 0 ? 0.9 : 1.1
-  zoom.value = Math.min(Math.max(zoom.value * factor, 0.25), 3)
+  setZoom(zoom.value * (e.deltaY > 0 ? 0.9 : 1.1))
 }
 
 function zoomIn() {
-  zoom.value = Math.min(zoom.value * 1.1, 3)
+  setZoom(zoom.value * 1.1)
 }
 
 function zoomOut() {
-  zoom.value = Math.max(zoom.value * 0.9, 0.25)
+  setZoom(zoom.value * 0.9)
 }
 
+/** 适配画布：按视口算一个刚好放得下整张纸的缩放，并滚回左上角 */
 function fitCanvas() {
-  zoom.value = 1
-  pan.value = { x: 0, y: 0 }
+  const el = canvasRef.value
+  if (!el) return
+  const pad = 48
+  const fit = Math.min(
+    (el.clientWidth - pad) / stageW.value,
+    (el.clientHeight - pad) / stageH.value
+  )
+  zoom.value = Math.min(Math.max(fit, ZOOM_MIN), 1)
+  requestAnimationFrame(() => {
+    const view = canvasScrollRef.value
+    if (view) {
+      view.scrollLeft = 0
+      view.scrollTop = 0
+    }
+  })
 }
 
 /* ---------------- 工具条 ---------------- */
 const activeTool = ref<CanvasTool>('select')
+
+/* ---------------- 画布尺寸面板 ----------------
+ * 和「移动内容」同级的功能栏工具：改的是画布这张「纸」的尺寸，
+ * 内容坐标不动；超出可视区域的部分由容器滚动查看。
+ * 写进 canvas（随画布存后端）+ 本机兜底，然后落盘。
+ * ------------------------------------------ */
+const sizePopOpen = ref(false)
+/** 面板草稿值：打开面板时用当前画布尺寸填充 */
+const sizeDraft = ref({ w: stageW.value, h: stageH.value })
+
+const sizeDirty = computed(
+  () => sizeDraft.value.w !== stageW.value || sizeDraft.value.h !== stageH.value
+)
+
+function toggleSizePanel() {
+  const next = !sizePopOpen.value
+  if (next) {
+    sizeDraft.value = { w: stageW.value, h: stageH.value }
+    relPopOpen.value = false
+  }
+  sizePopOpen.value = next
+}
+
+function pickSizePreset(p: CanvasPreset) {
+  sizeDraft.value = { w: p.w, h: p.h }
+}
+
+/** 应用尺寸：写进画布 + 本机兜底并立即落盘 */
+function applyCanvasSize() {
+  const size = clampSize(Number(sizeDraft.value.w), Number(sizeDraft.value.h))
+  sizeDraft.value = { ...size }
+  canvas.value.canvasWidth = size.w
+  canvas.value.canvasHeight = size.h
+  setLocalSize(currentPageId.value, size)
+  sizePopOpen.value = false
+  scrollToPaper()
+  void saveNow()
+  message.success(`画布已改为 ${size.w} × ${size.h}`)
+}
+
+/** 恢复缺省尺寸 */
+function resetCanvasSize() {
+  sizeDraft.value = { w: DEFAULT_CANVAS_W, h: DEFAULT_CANVAS_H }
+  applyCanvasSize()
+}
+
+/* ---------------- 工具栏拖动 ----------------
+ * 最上面那个箭头既是「选择」工具，也是整条工具栏的握把：
+ *   · 按住拖动（> 5px）→ 拖动整条工具栏；靠近左侧原位吸附，上下不吸附
+ *   · 原地单击         → 切回「选择」工具（不再承担移动画布）
+ * ------------------------------------------ */
+const TOOLBAR_POS_KEY = 'wb.toolbar.pos'
+const TOOLBAR_HOME_X = 20
+const TOOLBAR_SNAP = 26
+
+const toolbarRef = ref<HTMLElement | null>(null)
+const tbDragging = ref(false)
+const toolbarPinned = ref(false)
+const toolbarPos = ref(loadToolbarPos())
+
+/** 拖动结束后紧跟着的那次 click 要吞掉，否则会误触发「移动画布」 */
+let suppressToolClick = false
+
+const GRIP_TITLE = '按住拖动整条工具栏 · 单击回到「选择」'
+
+function loadToolbarPos(): { x: number; y: number } {
+  try {
+    const raw = localStorage.getItem(TOOLBAR_POS_KEY)
+    if (raw) {
+      const p = JSON.parse(raw) as { x?: number; y?: number }
+      if (typeof p.x === 'number' && typeof p.y === 'number') return { x: p.x, y: p.y }
+    }
+  } catch {
+    /* 坏数据就回默认位 */
+  }
+  return { x: TOOLBAR_HOME_X, y: 150 }
+}
+
+/** 靠近左侧原位就吸附过去；上下完全不吸附 */
+function snapToolbarX(x: number): number {
+  const snapped = Math.abs(x - TOOLBAR_HOME_X) <= TOOLBAR_SNAP
+  toolbarPinned.value = snapped
+  if (snapped) return TOOLBAR_HOME_X
+  const el = canvasRef.value
+  const w = toolbarRef.value?.offsetWidth ?? 52
+  const max = Math.max(8, (el?.clientWidth ?? 1200) - w - 8)
+  return Math.min(Math.max(8, x), max)
+}
+
+/** 纵向只做视口内约束，不吸附 */
+function clampToolbarY(y: number): number {
+  const el = canvasRef.value
+  const h = toolbarRef.value?.offsetHeight ?? 420
+  const max = Math.max(8, (el?.clientHeight ?? 800) - h - 8)
+  return Math.min(Math.max(8, y), max)
+}
+
+function onToolMouseDown(e: MouseEvent, tool: CanvasTool) {
+  if (tool !== 'select' || e.button !== 0) return
+  const startX = e.clientX
+  const startY = e.clientY
+  const ox = toolbarPos.value.x
+  const oy = toolbarPos.value.y
+  let moved = false
+
+  const onMove = (ev: MouseEvent) => {
+    const dx = ev.clientX - startX
+    const dy = ev.clientY - startY
+    if (!moved && Math.hypot(dx, dy) < 5) return
+    moved = true
+    tbDragging.value = true
+    toolbarPos.value = { x: snapToolbarX(ox + dx), y: clampToolbarY(oy + dy) }
+    document.body.style.userSelect = 'none'
+  }
+  const onUp = () => {
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    document.body.style.userSelect = ''
+    if (!moved) return
+    tbDragging.value = false
+    suppressToolClick = true
+    toolbarPos.value = {
+      x: snapToolbarX(toolbarPos.value.x),
+      y: clampToolbarY(toolbarPos.value.y)
+    }
+    localStorage.setItem(TOOLBAR_POS_KEY, JSON.stringify(toolbarPos.value))
+    // click 紧跟在 mouseup 之后同步派发，下个 tick 再放开即可
+    window.setTimeout(() => {
+      suppressToolClick = false
+    }, 0)
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
 
 const TOOLS: { key: CanvasTool; label: string; dividerBefore?: boolean; icon: string }[] = [
   {
     key: 'select',
     label: '选择',
     icon: `<svg viewBox="0 0 18 18" fill="none"><path d="M4 2.6 13.4 9.2l-4.1.7 2.2 4.6-1.9.9-2.2-4.6-2.4 2.3z" stroke="#6B665E" stroke-width="1.5" stroke-linejoin="round"/></svg>`
+  },
+  {
+    key: 'moveContent',
+    label: '移动内容',
+    dividerBefore: true,
+    icon: `<svg viewBox="0 0 18 18" fill="none"><path d="M9 2.4v13.2M2.4 9h13.2" stroke="#6B665E" stroke-width="1.5" stroke-linecap="round"/><path d="M9 2.4 6.8 4.9M9 2.4l2.2 2.5M9 15.6l-2.2-2.5M9 15.6l2.2-2.5M2.4 9l2.5-2.2M2.4 9l2.5 2.2M15.6 9l-2.5-2.2M15.6 9l-2.5 2.2" stroke="#6B665E" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+  },
+  {
+    key: 'canvasSize',
+    label: '画布尺寸',
+    icon: `<svg viewBox="0 0 18 18" fill="none"><rect x="2.8" y="2.8" width="12.4" height="12.4" rx="1.8" stroke="#6B665E" stroke-width="1.5" stroke-dasharray="3.4 2.4"/><path d="M7.4 10.6 10.6 7.4" stroke="#6B665E" stroke-width="1.5" stroke-linecap="round"/><path d="M11.2 7.4H9.4v1.8M6.8 10.6h1.8V8.8" stroke="#6B665E" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`
   },
   {
     key: 'person',
@@ -1480,7 +2415,26 @@ const TOOLS: { key: CanvasTool; label: string; dividerBefore?: boolean; icon: st
 ]
 
 function onToolClick(tool: CanvasTool) {
+  // 刚拖完工具栏产生的那次 click 不算数
+  if (suppressToolClick) {
+    suppressToolClick = false
+    return
+  }
   switch (tool) {
+    case 'select':
+      // 箭头恢复为原始功能：单纯的「选择」
+      activeTool.value = 'select'
+      return
+    case 'moveContent':
+      // 移动整页内容（坐标会真的改）
+      activeTool.value = activeTool.value === 'moveContent' ? 'select' : 'moveContent'
+      sizePopOpen.value = false
+      return
+    case 'canvasSize':
+      // 弹出画布尺寸面板；与「移动内容」互斥
+      activeTool.value = 'select'
+      toggleSizePanel()
+      return
     case 'relationGraph':
       openRelationGraphs()
       return
@@ -1511,6 +2465,12 @@ const draggingId = ref<string | null>(null)
 function objectById(id: string): CanvasObject | undefined {
   return canvas.value.objects.find((o) => o.id === id)
 }
+
+/**
+ * 同一对对象之间存在多条关系时（师徒 / 怀疑 / 血缘…），
+ * 给每条算一个法线偏移，让它们平行并排，而不是叠成一条线。
+ */
+const relOffsets = computed(() => bundleOffsets(canvas.value.relationships))
 
 let dragStartPos = { x: 0, y: 0 }
 let dragOriginPos = { x: 0, y: 0 }
@@ -1789,6 +2749,12 @@ function onTimelineMove(timelineId: string, x: number, y: number) {
   scheduleSave()
 }
 
+/** 拖缘调整时间线面板大小：横向存 width，纵向存 height */
+function onTimelineResize(timelineId: string, size: { width?: number; height?: number }) {
+  workspaceStore.setTimelineSize(timelineId, size)
+  scheduleSave()
+}
+
 /** 关闭 = 移除这条时间线 */
 function onTimelineClose(timelineId: string) {
   const tl = canvas.value.timelines.find((t) => t.id === timelineId)
@@ -1806,11 +2772,31 @@ function onTimelineClose(timelineId: string) {
   })
 }
 
-/* ---------------- 关系图抽屉 ---------------- */
-const graphDrawer = ref(false)
-const graphSource = ref<'auto' | 'custom'>('auto')
+/* ---------------- 关系图 / 族谱图 抽屉 ----------------
+ * 两种「图」共用一套抽屉外壳：
+ *   列表层：本案件下已有的 + 新增
+ *   详情层：查看 / 编辑某一张图（增删对象与关系），只改这张图，不动画布
+ * 差别只有三处：
+ *   ① 数据来源  关系图走后端（支持从画布 / 全书自动提取）
+ *               族谱图全部手工建立，存在本机浏览器
+ *   ② 对象字段  族谱成员多出性别 / 生卒年
+ *   ③ 图形排布  关系图 = 中心切换的环状，族谱图 = 一代一行
+ * ------------------------------------------ */
+type ExtKind = 'relation' | 'family'
+
+const extDrawer = ref(false)
+const extKind = ref<ExtKind>('relation')
+const extMode = ref<'list' | 'detail'>('list')
+const extView = ref<'list' | 'graph'>('list')
+const extLoading = ref(false)
+
+const graphList = ref<RelationGraphResponse[]>([])
+const activeGraph = ref<RelationGraphDetailResponse | null>(null)
 const graphFilter = ref<'all' | 'person' | 'thing'>('all')
-const graphView = ref<'list' | 'graph'>('list')
+
+const familyTrees = ref<FamilyTreeResponse[]>([])
+const activeFamily = ref<FamilyTree | null>(null)
+const familyRelType = ref<FamilyRelType>('parent-child')
 
 const GRAPH_FILTERS = [
   { value: 'all' as const, label: '全部' },
@@ -1818,71 +2804,841 @@ const GRAPH_FILTERS = [
   { value: 'thing' as const, label: '事物↔事物' }
 ]
 
-/** 从画布推导关系图（自动提取 = 直接读当前页的 objects + relationships） */
-const graphNodes = computed<GraphNode[]>(() =>
-  canvas.value.objects.map((o) => ({ id: o.id, name: o.name, type: o.type }))
-)
-
-const graphEdges = computed<GraphEdge[]>(() =>
-  canvas.value.relationships.map((r) => ({
-    id: r.id,
-    source: r.source,
-    target: r.target,
-    label: r.label,
-    type: r.type
-  }))
-)
-
-const graphRows = computed(() => {
-  const rows = graphEdges.value
-    .map((e) => {
-      const from = graphNodes.value.find((n) => n.id === e.source)
-      const to = graphNodes.value.find((n) => n.id === e.target)
-      if (!from || !to) return null
-      // 类型过滤
-      if (graphFilter.value === 'person') {
-        if (from.type !== 'person' && to.type !== 'person') return null
-      } else if (graphFilter.value === 'thing') {
-        if (from.type === 'person' && to.type === 'person') return null
-      }
-      return { id: e.id, from: from.name, to: to.name, label: e.label }
-    })
-    .filter((x): x is { id: string; from: string; to: string; label: string } => x !== null)
-  return rows
+const edgeDraft = reactive({
+  source: '',
+  target: '',
+  label: '',
+  type: 'unidirectional' as RelationshipType
 })
 
+/** 详情层「新增对象 / 成员」的草稿 */
+const nodeDraft = reactive({
+  name: '',
+  type: 'person' as string,
+  gender: 'male' as FamilyGender,
+  birth: '',
+  death: ''
+})
+
+/* ---- 统一视图模型：把两种图抹平成同一套 节点 / 关系 ---- */
+
+interface ExtNode {
+  id: string
+  name: string
+  type: string
+  kind: NodeKind
+  gender?: FamilyGender
+}
+
+interface ExtEdge {
+  id: string
+  source: string
+  target: string
+  label: string
+  type: string
+}
+
+const extNodes = computed<ExtNode[]>(() => {
+  if (extKind.value === 'relation') {
+    return (activeGraph.value?.data.nodes ?? []).map((n) => ({
+      id: n.id,
+      name: n.name,
+      type: n.type,
+      kind: nodeShapeOf(n.type)
+    }))
+  }
+  return (activeFamily.value?.members ?? []).map((m) => ({
+    id: m.id,
+    name: m.name,
+    type: 'person',
+    kind: 'person' as NodeKind,
+    gender: m.gender
+  }))
+})
+
+const extEdges = computed<ExtEdge[]>(() => {
+  if (extKind.value === 'relation') {
+    // 自环（自己连自己）没有意义，直接丢掉
+    return (activeGraph.value?.data.edges ?? [])
+      .filter((e) => e.source !== e.target)
+      .map((e) => ({
+        id: e.id,
+        source: e.source,
+        target: e.target,
+        label: e.label,
+        type: e.type
+      }))
+  }
+  return (activeFamily.value?.relations ?? []).map((r) => ({
+    id: r.id,
+    source: r.from,
+    target: r.to,
+    label: r.type === 'spouse' ? '配偶' : '亲子',
+    type: r.type === 'spouse' ? 'bidirectional' : 'unidirectional'
+  }))
+})
+
+/**
+ * 类型筛选：这一版**真正作用到节点与关系上**，
+ * 所以图形视图会随筛选重新排布，而不是只过滤列表。
+ *   人物↔人物 → 两端都是人物
+ *   事物↔事物 → 两端都不是人物（事物 / 事件）
+ */
+const extFilteredEdges = computed<ExtEdge[]>(() => {
+  if (extKind.value !== 'relation' || graphFilter.value === 'all') return extEdges.value
+  const kindOf = (id: string) => extNodes.value.find((n) => n.id === id)?.kind
+  const want = (k?: NodeKind) =>
+    graphFilter.value === 'person' ? k === 'person' : !!k && k !== 'person'
+  return extEdges.value.filter((e) => want(kindOf(e.source)) && want(kindOf(e.target)))
+})
+
+const extRows = computed(() =>
+  extFilteredEdges.value
+    .map((e) => {
+      const from = extNodes.value.find((n) => n.id === e.source)?.name
+      const to = extNodes.value.find((n) => n.id === e.target)?.name
+      if (!from || !to) return null
+      return { id: e.id, from, to, label: e.label }
+    })
+    .filter((x): x is { id: string; from: string; to: string; label: string } => x !== null)
+)
+
+const extList = computed(() =>
+  extKind.value === 'relation'
+    ? graphList.value.map((g) => ({ id: String(g.id), name: g.name, updatedAt: g.updatedAt }))
+    : familyTrees.value.map((t) => ({ id: String(t.id), name: t.name, updatedAt: t.updatedAt }))
+)
+
+const extTitle = computed(() => {
+  if (extMode.value === 'detail') {
+    return extKind.value === 'relation'
+      ? activeGraph.value?.name ?? '关系图'
+      : activeFamily.value?.name ?? '族谱图'
+  }
+  return extKind.value === 'relation' ? '人物关系图' : '族谱图'
+})
+
+const canAddExtRelation = computed(
+  () => !!edgeDraft.source && !!edgeDraft.target && edgeDraft.source !== edgeDraft.target
+)
+
+/** 类型筛选下一条关系都没有：空态里给个一键回到「全部」 */
+const relFilterEmpty = computed(
+  () =>
+    extKind.value === 'relation' &&
+    graphFilter.value !== 'all' &&
+    extFilteredEdges.value.length === 0
+)
+
+/* ---- 抽屉尺寸：可拖拽调整，关系图 / 族谱图共用一套 ---- */
+
+const DRAWER_W_MIN = 320
+const DRAWER_W_MAX = 900
+const DRAWER_H_MIN = 320
+const DRAWER_W_DEFAULT = 420
+
+const drawerW = ref(DRAWER_W_DEFAULT)
+/** null = 高度由上下撑满（还没手动调过）；拖动下边缘后才有确定值 */
+const drawerH = ref<number | null>(null)
+
+const drawerRef = ref<HTMLElement | null>(null)
+const drawerResizing = ref(false)
+
+type DrawerResizeAxis = 'x' | 'y' | 'both'
+
+/**
+ * 拖抽屉边缘改尺寸。
+ * 抽屉贴着右侧，所以「左边缘」往左拖 = 变宽；「下边缘」往下拖 = 变高。
+ * 高度第一次拖动时以当前渲染高度为起点，避免尺寸突跳。
+ */
+function onDrawerResizeStart(e: MouseEvent, axis: DrawerResizeAxis) {
+  if (e.button !== 0) return
+  e.preventDefault()
+  e.stopPropagation()
+  const startX = e.clientX
+  const startY = e.clientY
+  const w0 = drawerW.value
+  const h0 = drawerH.value ?? drawerRef.value?.offsetHeight ?? DRAWER_H_MIN
+  // 高度不能超过容器：否则底部的「删除」等操作会被顶到屏幕外够不着
+  const maxH = drawerRef.value?.parentElement?.clientHeight ?? Number.POSITIVE_INFINITY
+  drawerResizing.value = true
+  document.body.style.userSelect = 'none'
+  document.body.style.cursor =
+    axis === 'x' ? 'col-resize' : axis === 'y' ? 'row-resize' : 'nwse-resize'
+
+  const onMove = (ev: MouseEvent) => {
+    if (axis !== 'y') {
+      drawerW.value = Math.min(
+        DRAWER_W_MAX,
+        Math.max(DRAWER_W_MIN, w0 - (ev.clientX - startX))
+      )
+    }
+    if (axis !== 'x') {
+      drawerH.value = Math.min(
+        maxH,
+        Math.max(DRAWER_H_MIN, h0 + (ev.clientY - startY))
+      )
+    }
+  }
+  const onUp = () => {
+    drawerResizing.value = false
+    document.body.style.userSelect = ''
+    document.body.style.cursor = ''
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+  }
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+function resetDrawerSize() {
+  drawerW.value = DRAWER_W_DEFAULT
+  drawerH.value = null
+}
+
+/* ---- 图形区尺寸：随抽屉一起变，图跟着重排而不是被裁掉 ---- */
+
+const graphCanvasRef = ref<HTMLElement | null>(null)
+const graphBox = reactive({ w: 360, h: 380 })
+let graphRO: ResizeObserver | null = null
+
+function bindGraphCanvas(el: unknown) {
+  const node = el instanceof HTMLElement ? el : null
+  graphCanvasRef.value = node
+  if (graphRO) {
+    graphRO.disconnect()
+    graphRO = null
+  }
+  if (!node || typeof ResizeObserver === 'undefined') return
+  const measure = () => {
+    graphBox.w = Math.max(160, node.clientWidth)
+    graphBox.h = Math.max(160, node.clientHeight)
+  }
+  measure()
+  graphRO = new ResizeObserver(measure)
+  graphRO.observe(node)
+}
+
+onUnmounted(() => {
+  graphRO?.disconnect()
+  graphRO = null
+})
+
+/* ---- 关系图图形视图：中心切换式排布 ---- */
+
+/** 当前中心对象 */
+const focusId = ref('')
+/** 走过的中心，用来「返回上一个中心」 */
+const focusStack = ref<string[]>([])
+
+/**
+ * 筛选后仍出现在关系里的对象集合。
+ * 「全部」且这张图还没有任何关系时，退化成全部对象——有对象可看，好过一片空白；
+ * 但类型筛选下不退化，否则会出现「选了事物↔事物却孤零零站着一个人物」的怪象。
+ */
+const allowedIds = computed(() => {
+  const set = new Set<string>()
+  extFilteredEdges.value.forEach((e) => {
+    set.add(e.source)
+    set.add(e.target)
+  })
+  if (!set.size && graphFilter.value === 'all') extNodes.value.forEach((n) => set.add(n.id))
+  return set
+})
+
+watch(
+  allowedIds,
+  (set) => {
+    if (!set.size) {
+      focusId.value = ''
+      focusStack.value = []
+      return
+    }
+    if (!focusId.value || !set.has(focusId.value)) {
+      focusId.value = [...set][0]
+      focusStack.value = []
+    }
+  },
+  { immediate: true }
+)
+
+interface DrawerNode {
+  id: string
+  name: string
+  kind: NodeKind
+  x: number
+  y: number
+  /** 人物圆形半径；其余形态为 0 */
+  r: number
+  focus: boolean
+}
+
+/** 环形半径上限：随图形区大小走，别贴边 */
+const ringCap = computed(() => Math.max(70, Math.min(graphBox.w, graphBox.h) / 2 - 52))
+
+const drawerNodes = computed<DrawerNode[]>(() => {
+  const cx = graphBox.w / 2
+  const cy = graphBox.h / 2
+  const rOf = (id: string) => {
+    const meta = extNodes.value.find((x) => x.id === id)
+    return meta && meta.kind === 'person' ? personRadius(meta.name) : 0
+  }
+  const make = (id: string, x: number, y: number, focus: boolean): DrawerNode | null => {
+    const meta = extNodes.value.find((n) => n.id === id)
+    if (!meta) return null
+    return {
+      id,
+      name: meta.name,
+      kind: meta.kind,
+      x,
+      y,
+      r: meta.kind === 'person' ? personRadius(meta.name) : 0,
+      focus
+    }
+  }
+
+  // 没有任何关系可画时：全部筛选下把对象平铺出来，类型筛选下交给空态文案
+  if (!extFilteredEdges.value.length) {
+    if (graphFilter.value !== 'all') return []
+    const all = [...allowedIds.value]
+    if (!all.length) return []
+    const n = all.length
+    const radius = n === 1 ? 0 : Math.min(ringCap.value, 44 + n * 8)
+    const out: DrawerNode[] = []
+    all.forEach((id, i) => {
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / n
+      const d = make(id, cx + Math.cos(a) * radius, cy + Math.sin(a) * radius, false)
+      if (d) out.push(d)
+    })
+    return out
+  }
+
+  const center = focusId.value
+  if (!center) return []
+  const nb = neighborsOf(center, extFilteredEdges.value, (id) => allowedIds.value.has(id))
+  // 环形半径：既不被中心圆压住，圆周也够放下所有邻居（间距放宽，别挤成一团），再受可用区域限制
+  const radius = Math.min(
+    ringCap.value,
+    Math.max(62 + nb.length * 9, ringRadius(rOf(center), nb.map(rOf), 42))
+  )
+  const posMap = radialLayout(center, nb, { cx, cy, radius })
+  const out: DrawerNode[] = []
+  for (const id of [center, ...nb]) {
+    const p = posMap[id]
+    if (!p) continue
+    const d = make(id, p.x, p.y, id === center)
+    if (d) out.push(d)
+  }
+  return out
+})
+
+const drawerEdgeGeoms = computed(() => {
+  const ids = new Set(drawerNodes.value.map((n) => n.id))
+  // 只画「中心 ↔ 邻居」的辐条：邻居之间的连线横穿圆心，看着杂乱且遮住中心，
+  // 等点它成为中心时自然会展开（中心切换式排布的约定）
+  const rel = extFilteredEdges.value.filter(
+    (e) =>
+      ids.has(e.source) &&
+      ids.has(e.target) &&
+      (e.source === focusId.value || e.target === focusId.value)
+  )
+  const offsets = bundleOffsets(rel, 15)
+  const at = (id: string) => drawerNodes.value.find((n) => n.id === id)
+  return rel
+    .map((e) => {
+      const a = at(e.source)
+      const b = at(e.target)
+      if (!a || !b) return null
+      const dx = b.x - a.x
+      const dy = b.y - a.y
+      const len = Math.hypot(dx, dy) || 1
+      // 法线按无向基准方向算，A→B 与 B→A 才不会把偏移抵消掉
+      const o = (offsets[e.id] ?? 0) * normalFlip(e.source, e.target)
+      const nx = (-dy / len) * o
+      const ny = (dx / len) * o
+      return {
+        id: e.id,
+        x1: a.x + nx,
+        y1: a.y + ny,
+        x2: b.x + nx,
+        y2: b.y + ny,
+        lx: (a.x + b.x) / 2 + nx,
+        ly: (a.y + b.y) / 2 + ny - 6,
+        label: e.label,
+        dash: e.type === 'dashed'
+      }
+    })
+    .filter((x): x is NonNullable<typeof x> => x !== null)
+})
+
+function diamondPath(cx: number, cy: number, halfW: number, halfH: number): string {
+  return `M${cx} ${cy - halfH} L${cx + halfW} ${cy} L${cx} ${cy + halfH} L${cx - halfW} ${cy} Z`
+}
+
+function setFocus(id: string) {
+  if (id === focusId.value) return
+  focusStack.value = [...focusStack.value, focusId.value].filter(Boolean)
+  focusId.value = id
+}
+
+function backFocus() {
+  const stack = [...focusStack.value]
+  const prev = stack.pop()
+  focusStack.value = stack
+  if (prev) focusId.value = prev
+}
+
+function setGraphFilter(v: 'all' | 'person' | 'thing') {
+  graphFilter.value = v
+  focusId.value = ''
+  focusStack.value = []
+}
+
+/* ---- 族谱图排布（一代一行） ---- */
+
+const familyLayout = computed(() =>
+  activeFamily.value
+    ? layoutFamilyTree(activeFamily.value)
+    : { nodes: [], edges: [], spouses: [], width: 320, height: 220, generations: 0 }
+)
+
+/**
+ * 族谱可能比抽屉宽（同一代人多时）。按宽度等比缩一下好让整棵树一眼看全，
+ * 但不放大（放大只会糊），缩到 42% 是下限，再宽就交给容器滚动。
+ */
+const familyScale = computed(() => {
+  const w = familyLayout.value.width || 1
+  return Math.min(1, Math.max(0.42, (graphBox.w - 4) / w))
+})
+
+/* ---- 打开 / 关闭 ---- */
+
+async function openExt(kind: ExtKind) {
+  extKind.value = kind
+  extDrawer.value = true
+  extMode.value = 'list'
+  extView.value = 'list'
+  activeGraph.value = null
+  activeFamily.value = null
+  graphFilter.value = 'all'
+  focusId.value = ''
+  focusStack.value = []
+  resetExtDrafts()
+  if (kind === 'relation') await refreshGraphList()
+  else await refreshFamilyList()
+}
+
+/** 顶栏「关系图」工具 = 直接打开人物关系图 */
 function openRelationGraphs() {
-  graphDrawer.value = true
+  return openExt('relation')
 }
 
-/** 圆形布局，稳定可预期 */
-function pos(id: string) {
-  const nodes = graphNodes.value
-  const i = nodes.findIndex((n) => n.id === id)
-  const n = Math.max(nodes.length, 1)
-  const cx = 200
-  const cy = 230
-  const r = Math.min(150, 40 + n * 14)
-  const angle = (i / n) * Math.PI * 2 - Math.PI / 2
-  return { x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) }
+function resetExtDrafts() {
+  nodeDraft.name = ''
+  nodeDraft.birth = ''
+  nodeDraft.death = ''
+  edgeDraft.source = ''
+  edgeDraft.target = ''
+  edgeDraft.label = ''
 }
 
-async function extractFromCanvas() {
+async function refreshGraphList() {
+  extLoading.value = true
   try {
-    const data = await relationGraphApi.extractRelationGraph(bookId.value, {
+    graphList.value = await relationGraphApi.listRelationGraphs(bookId.value)
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    extLoading.value = false
+  }
+}
+
+async function refreshFamilyList() {
+  extLoading.value = true
+  try {
+    familyTrees.value = await familyTreeApi.listFamilyTrees(bookId.value)
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    extLoading.value = false
+  }
+}
+
+function fmtGraphTime(v?: string): string {
+  if (!v) return ''
+  return v.slice(0, 10)
+}
+
+/** 当前画布能直接给出的关系图数据（不依赖后端） */
+function canvasGraphData(): RelationGraphData {
+  const cv = canvas.value
+  const ids = new Set(cv.objects.map((o) => o.id))
+  return {
+    nodes: cv.objects.map((o) => ({
+      id: o.id,
+      name: o.name || '未命名',
+      type: o.type || 'thing'
+    })),
+    edges: cv.relationships
+      .filter((r) => ids.has(r.source) && ids.has(r.target))
+      .map((r) => ({
+        id: r.id,
+        source: r.source,
+        target: r.target,
+        label: r.label,
+        type: r.type
+      }))
+  }
+}
+
+/**
+ * 取一份关系图数据。
+ *
+ * 后端 extract 覆盖整本书、理应更全，但实测存在「接口成功返回、
+ * 里面却一条关系都没有」的情况——于是定了一条兜底规则：
+ * 只要 extract 拿不出可用结果（空节点，或者画布明明有关系而它一条都没提取到），
+ * 就退回当前画布推导。绝不出现「提示提取成功、点开图里却空空如也」。
+ */
+async function extractGraphData(): Promise<{
+  data: RelationGraphData
+  from: 'server' | 'canvas'
+}> {
+  const local = canvasGraphData()
+  let remote: RelationGraphData | null = null
+  try {
+    remote = await relationGraphApi.extractRelationGraph(bookId.value, {
       objectTypes: ['person', 'thing'],
       relationTypes: ['unidirectional', 'bidirectional', 'dashed']
     })
-    message.success(`提取完成：${data.nodes.length} 个节点 · ${data.edges.length} 条关系`)
+  } catch {
+    remote = null
+  }
+
+  const remoteNodes = remote?.nodes?.length ?? 0
+  const remoteEdges = remote?.edges?.length ?? 0
+  const serverUsable = remoteNodes > 0 && (remoteEdges > 0 || local.edges.length === 0)
+
+  if (remote && serverUsable) {
+    const nodeIds = new Set(remote.nodes.map((n) => n.id))
+    return {
+      data: {
+        nodes: remote.nodes,
+        edges: (remote.edges ?? []).filter(
+          (e) => nodeIds.has(e.source) && nodeIds.has(e.target)
+        )
+      },
+      from: 'server'
+    }
+  }
+  return { data: local, from: 'canvas' }
+}
+
+function describeExtract(data: RelationGraphData, from: 'server' | 'canvas'): string {
+  const src = from === 'server' ? '全书' : '当前画布'
+  return `已从${src}提取 ${data.nodes.length} 个对象 · ${data.edges.length} 条关系`
+}
+
+/** 新增：建图 → 自动提取 → 存为初始数据 → 进入详情 */
+async function createGraphFromCanvas() {
+  openPrompt({
+    title: '新增关系图',
+    placeholder: '如：主要人物关系',
+    async onOk(name) {
+      try {
+        extLoading.value = true
+        const created = await relationGraphApi.createRelationGraph(bookId.value, { name })
+        const { data, from } = await extractGraphData()
+        await relationGraphApi.saveRelationGraphData(created.id, data)
+
+        await refreshGraphList()
+        await openExtDetail({ id: String(created.id), name: created.name, updatedAt: '' })
+        message.success(`${describeExtract(data, from)}，可继续编辑`)
+      } catch {
+        /* 拦截器已提示 */
+      } finally {
+        extLoading.value = false
+      }
+    }
+  })
+}
+
+/** 新增族谱图：不做任何提取，建一张空白的，成员全部手工加 */
+function createFamilyFlow() {
+  openPrompt({
+    title: '新增族谱图',
+    placeholder: '如：沈氏家族',
+    async onOk(name) {
+      try {
+        extLoading.value = true
+        const created = await familyTreeApi.createFamilyTree(bookId.value, { name })
+        await refreshFamilyList()
+        const detail = await familyTreeApi.getFamilyTree(created.id)
+        openFamilyDetail(detail)
+        message.success('已创建，接下来手工添加成员与亲属关系')
+      } catch {
+        /* 拦截器已提示 */
+      } finally {
+        extLoading.value = false
+      }
+    }
+  })
+}
+
+function createExt() {
+  if (extKind.value === 'relation') void createGraphFromCanvas()
+  else createFamilyFlow()
+}
+
+/** 详情层：重新提取并覆盖这张图的数据（只有关系图有这一步） */
+function reextractActiveGraph() {
+  const g = activeGraph.value
+  if (!g) return
+  Modal.confirm({
+    title: '从画布重新提取',
+    content: '会用提取结果整体覆盖这张关系图的对象与关系，手工补充的内容会被替换。',
+    okText: '覆盖提取',
+    cancelText: '取消',
+    async onOk() {
+      extLoading.value = true
+      try {
+        const { data, from } = await extractGraphData()
+        g.data.nodes = data.nodes
+        g.data.edges = data.edges
+        await persistGraph()
+        message.success(describeExtract(data, from))
+      } catch {
+        /* 拦截器已提示 */
+      } finally {
+        extLoading.value = false
+      }
+    }
+  })
+}
+
+/** 详情层入口：按当前 kind 拉取对应的数据 */
+async function openExtDetail(item: { id: string; name: string; updatedAt: string }) {
+  if (extKind.value === 'relation') {
+    extLoading.value = true
+    try {
+      const detail = await relationGraphApi.getRelationGraph(Number(item.id))
+      // 后端可能给 null，先归一成空数组，后面所有 push 才安全
+      activeGraph.value = {
+        ...detail,
+        data: {
+          nodes: detail.data?.nodes ?? [],
+          edges: detail.data?.edges ?? []
+        }
+      }
+      extMode.value = 'detail'
+      extView.value = 'list'
+      graphFilter.value = 'all'
+      focusId.value = ''
+      focusStack.value = []
+      resetExtDrafts()
+    } catch {
+      /* 拦截器已提示 */
+    } finally {
+      extLoading.value = false
+    }
+    return
+  }
+
+  extLoading.value = true
+  try {
+    const detail = await familyTreeApi.getFamilyTree(Number(item.id))
+    openFamilyDetail(detail)
+  } catch {
+    /* 拦截器已提示 */
+  } finally {
+    extLoading.value = false
+  }
+}
+
+function openFamilyDetail(d: {
+  id: number
+  name: string
+  createdAt: string
+  updatedAt: string
+  data: { members?: FamilyMember[] | null; relations?: FamilyRelation[] | null }
+}) {
+  // 拷一份出来编辑，改完再整体写回
+  activeFamily.value = {
+    id: d.id,
+    name: d.name,
+    members: [...(d.data.members ?? [])],
+    relations: [...(d.data.relations ?? [])],
+    createdAt: d.createdAt,
+    updatedAt: d.updatedAt
+  }
+  extMode.value = 'detail'
+  extView.value = 'list'
+  resetExtDrafts()
+}
+
+function backToExtList() {
+  extMode.value = 'list'
+  activeGraph.value = null
+  activeFamily.value = null
+  focusId.value = ''
+  focusStack.value = []
+}
+
+/** 把详情层的数据写回后端（只影响这张关系图，不碰画布） */
+async function persistGraph() {
+  const g = activeGraph.value
+  if (!g) return
+  try {
+    await relationGraphApi.saveRelationGraphData(g.id, g.data)
   } catch {
     /* 拦截器已提示 */
   }
 }
 
-/* ---------------- 族谱图 ---------------- */
-function openFamilyTree() {
-  message.info('族谱图基于关系图数据生成，先在关系图里建立「父母 / 子女」关系')
-  graphDrawer.value = true
+/** 族谱写回后端（只影响这张族谱图，不碰画布） */
+async function persistFamily() {
+  const t = activeFamily.value
+  if (!t) return
+  try {
+    await familyTreeApi.saveFamilyTreeData(t.id, {
+      members: t.members,
+      relations: t.relations
+    })
+  } catch {
+    /* 拦截器已提示 */
+  }
+}
+
+async function removeExtRelation(relationId: string) {
+  if (extKind.value === 'relation') {
+    const g = activeGraph.value
+    if (!g) return
+    g.data.edges = g.data.edges.filter((e) => e.id !== relationId)
+    await persistGraph()
+    return
+  }
+  const t = activeFamily.value
+  if (!t) return
+  t.relations = t.relations.filter((r) => r.id !== relationId)
+  await persistFamily()
+}
+
+async function removeExtNode(nodeId: string) {
+  if (extKind.value === 'relation') {
+    const g = activeGraph.value
+    if (!g) return
+    g.data.nodes = g.data.nodes.filter((n) => n.id !== nodeId)
+    g.data.edges = g.data.edges.filter((e) => e.source !== nodeId && e.target !== nodeId)
+    await persistGraph()
+    return
+  }
+  const t = activeFamily.value
+  if (!t) return
+  t.members = t.members.filter((m) => m.id !== nodeId)
+  t.relations = t.relations.filter((r) => r.from !== nodeId && r.to !== nodeId)
+  await persistFamily()
+}
+
+async function addExtRelation() {
+  if (!canAddExtRelation.value) return
+  if (extKind.value === 'relation') {
+    const g = activeGraph.value
+    if (!g) return
+    if (!g.data.edges) g.data.edges = []
+    g.data.edges.push({
+      id: localId('ge'),
+      source: edgeDraft.source,
+      target: edgeDraft.target,
+      label: edgeDraft.label.trim() || '关系',
+      type: edgeDraft.type
+    })
+    edgeDraft.source = ''
+    edgeDraft.target = ''
+    edgeDraft.label = ''
+    await persistGraph()
+    return
+  }
+  const t = activeFamily.value
+  if (!t) return
+  t.relations.push({
+    id: newRelationId(),
+    type: familyRelType.value,
+    from: edgeDraft.source,
+    to: edgeDraft.target
+  })
+  edgeDraft.source = ''
+  edgeDraft.target = ''
+  await persistFamily()
+}
+
+/**
+ * 手动新增一个对象 / 成员。
+ * 之前的详情层只有「新增关系」却没有地方建对象，
+ * 一旦提取失败就完全没法往下走。
+ */
+async function addExtNode() {
+  const name = nodeDraft.name.trim()
+  if (!name) return
+
+  if (extKind.value === 'relation') {
+    const g = activeGraph.value
+    if (!g) return
+    if (!g.data.nodes) g.data.nodes = []
+    g.data.nodes.push({ id: localId('gn'), name, type: nodeDraft.type })
+    nodeDraft.name = ''
+    await persistGraph()
+  } else {
+    const t = activeFamily.value
+    if (!t) return
+    t.members.push({
+      id: newMemberId(),
+      name,
+      gender: nodeDraft.gender,
+      birth: nodeDraft.birth.trim() || undefined,
+      death: nodeDraft.death.trim() || undefined
+    })
+    nodeDraft.name = ''
+    nodeDraft.birth = ''
+    nodeDraft.death = ''
+    await persistFamily()
+  }
+  message.success(`已添加「${name}」`)
+}
+
+function removeExt() {
+  if (extKind.value === 'relation') {
+    const g = activeGraph.value
+    if (!g) return
+    Modal.confirm({
+      title: '删除关系图',
+      content: `「${g.name}」会被删除，画布不受影响。`,
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      async onOk() {
+        await relationGraphApi.deleteRelationGraph(g.id)
+        backToExtList()
+        await refreshGraphList()
+        message.success('关系图已删除')
+      }
+    })
+    return
+  }
+
+  const t = activeFamily.value
+  if (!t) return
+  Modal.confirm({
+    title: '删除族谱图',
+    content: `「${t.name}」会被删除，画布不受影响。`,
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    async onOk() {
+      await familyTreeApi.deleteFamilyTree(t.id)
+      backToExtList()
+      await refreshFamilyList()
+      message.success('族谱图已删除')
+    }
+  })
 }
 
 /* ---------------- 键盘 ---------------- */
@@ -1896,6 +3652,11 @@ function onKeyUp(e: KeyboardEvent) {
       nodeDialog.open = false
       return
     }
+    if (sizePopOpen.value) {
+      sizePopOpen.value = false
+      return
+    }
+    if (activeTool.value === 'moveContent') activeTool.value = 'select'
     cancelLinking()
     return
   }
@@ -2013,7 +3774,7 @@ onUnmounted(() => {
   background: var(--line-4);
 }
 
-/* ═══ 两列容器：180 + 192 = 372 ═══ */
+/* ═══ 两列容器：event 列 + page 列（可拖宽） ═══ */
 .cols {
   display: flex;
   flex: 1;
@@ -2030,11 +3791,27 @@ onUnmounted(() => {
   gap: 2px;
 }
 
+/* 列宽拖柄：贴在两列之间 */
+.col-resize {
+  flex: none;
+  width: 4px;
+  margin: 0 -2px;
+  z-index: 3;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 140ms var(--ease);
+}
+
+.col-resize:hover,
+.col-resize:active {
+  background: rgba(124, 154, 136, 0.35);
+}
+
 .col-page {
   display: flex;
   flex-direction: column;
-  flex: none;
-  width: 192px;
+  flex: 1;
+  min-width: 0;
   background: var(--bg-column-page);
   padding: 12px 6px;
   gap: 2px;
@@ -2378,33 +4155,67 @@ onUnmounted(() => {
   min-height: 0;
   overflow: hidden;
   background: var(--bg-canvas);
-  cursor: default;
+  /* 箭头工具：空白处按住可拖动平移视野 */
+  cursor: grab;
 }
 
-/* 选中 page 后，画布底色跟随笔记背景（默认纯白） */
+/* 选中 page 后，画布周围留一圈中性底色，白色「纸」才是主角 */
 .canvas-area.has-bg {
-  background: #FFFFFF;
+  background: var(--bg-canvas);
 }
 
-.canvas-area.bg-line {
-  background: #FFFFFF;
-  background-image: repeating-linear-gradient(
-    to bottom,
-    transparent 0,
-    transparent 23px,
-    #E8E9EA 23px,
-    #E8E9EA 24px
-  );
-  background-size: 100% 24px;
+/* 移动内容模式：四向箭头光标（整体平移内容，不是平移视口） */
+.canvas-area.mode-content {
+  cursor: move;
 }
 
 .canvas-area.grabbing {
   cursor: grabbing;
 }
 
-.grid-layer {
+/* ---------------- 固定尺寸画布：滚动视口 + 纸张 ----------------
+ * 画布是一张有明确尺寸的纸（见 canvasSize.ts），
+ * 尺寸比可视区域大时，超出部分由 .canvas-viewport 滚（滚轮 / 滚动条）。
+ * ------------------------------------------------------------ */
+.canvas-viewport {
   position: absolute;
   inset: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* 占位层：尺寸 = 纸张 ∪ 内容包围盒（× 缩放），滚动条长度按它算 */
+.canvas-scroll {
+  position: relative;
+}
+
+/* 原点层：画布 (0,0) 在滚动盒子里的落点（内容有负坐标时 > 0） */
+.canvas-origin {
+  position: absolute;
+  pointer-events: none;
+}
+
+/* 原点层里的东西各自恢复交互（节点在 CanvasNode 里单独 auto） */
+.canvas-origin > .stage {
+  pointer-events: auto;
+}
+
+/* 纸张：把画布边界显式画出来（内容坐标 0,0 就在它的左上角） */
+.canvas-paper {
+  position: absolute;
+  left: 0;
+  top: 0;
+  background: #FFFFFF;
+  box-shadow:
+    0 0 0 1px #E8E3DB,
+    0 10px 26px -18px rgba(89, 84, 74, 0.4);
+  pointer-events: none;
+}
+
+.grid-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
   pointer-events: none;
 }
 
@@ -2421,6 +4232,9 @@ onUnmounted(() => {
   top: 0;
   left: 0;
   overflow: visible;
+  /* 关键：整张 SVG 必须放行鼠标事件，否则它会盖住整个画布吃掉平移点击；
+     节点本体在 CanvasNode 里用 pointer-events: auto 单独恢复 */
+  pointer-events: none;
 }
 
 .edge-layer {
@@ -2648,6 +4462,138 @@ onUnmounted(() => {
   flex: none;
 }
 
+/* ═══════════ 画布尺寸面板 ═══════════ */
+.size-pop {
+  position: absolute;
+  left: calc(100% + 12px);
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 196px;
+  padding: 8px;
+  background: #fff;
+  border: 1px solid #e8e3db;
+  border-radius: var(--r-lg);
+  box-shadow: 0 10px 26px -6px rgba(89, 84, 74, 0.2);
+}
+
+.size-pop-title {
+  padding: 2px 4px 7px;
+  font-size: 9.5px;
+  letter-spacing: 0.03em;
+  color: var(--ink-5);
+}
+
+.size-fields {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 2px 8px;
+}
+
+.size-field {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex: 1;
+  min-width: 0;
+}
+
+.size-field-label {
+  flex: none;
+  font-size: 10px;
+  color: var(--ink-5);
+}
+
+.size-input {
+  width: 100%;
+  min-width: 0;
+  height: 26px;
+  padding: 0 7px;
+  border: 1px solid #e8e3db;
+  border-radius: var(--r-sm);
+  background: #fbfaf8;
+  color: var(--ink-1);
+  font-family: inherit;
+  font-size: 11px;
+  outline: none;
+}
+
+.size-input:focus {
+  border-color: #c9c2b6;
+  background: #fff;
+}
+
+.size-x {
+  flex: none;
+  font-size: 10px;
+  color: var(--ink-5);
+}
+
+.size-pop-sub {
+  padding: 2px 6px 5px;
+  font-size: 9.5px;
+  letter-spacing: 0.03em;
+  color: var(--ink-5);
+}
+
+.size-opt {
+  justify-content: space-between;
+}
+
+.size-opt-value {
+  color: var(--ink-5);
+  font-size: 10px;
+}
+
+.size-pop-foot {
+  display: flex;
+  gap: 6px;
+  margin-top: 7px;
+  padding-top: 8px;
+  border-top: 1px solid #f1ede6;
+}
+
+.size-btn {
+  flex: 1;
+  height: 27px;
+  border: 1px solid #e8e3db;
+  border-radius: var(--r-sm);
+  background: #fff;
+  color: var(--ink-2);
+  font-family: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition:
+    background 120ms var(--ease),
+    border-color 120ms var(--ease),
+    color 120ms var(--ease);
+}
+
+.size-btn:hover {
+  background: #f5f3ef;
+}
+
+.size-btn.primary {
+  border-color: #cfdcd3;
+  background: #edf2ee;
+  color: #3f5b4c;
+}
+
+.size-btn.primary:hover {
+  background: #e3ece6;
+}
+
+.size-btn.primary:disabled {
+  border-color: #ece8e1;
+  background: #f7f5f2;
+  color: var(--ink-5);
+  cursor: default;
+}
+
 /* ═══════════ 连线提示条 ═══════════ */
 .link-hint {
   position: absolute;
@@ -2820,10 +4766,91 @@ onUnmounted(() => {
 
 .drawer-title {
   margin: 0;
+  flex: 1;
+  min-width: 0;
   font-family: var(--font-serif);
   font-weight: 700;
   font-size: 15px;
   color: var(--ink-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 抽屉尺寸拖柄：左缘调宽 / 下缘调高 / 左下角一起调 */
+.dr-grip {
+  position: absolute;
+  z-index: 2;
+}
+
+.dr-grip-x {
+  top: 0;
+  bottom: 14px;
+  left: -3px;
+  width: 7px;
+  cursor: col-resize;
+}
+
+.dr-grip-y {
+  left: 14px;
+  right: 0;
+  bottom: -3px;
+  height: 7px;
+  cursor: row-resize;
+}
+
+.dr-grip-xy {
+  left: -3px;
+  bottom: -3px;
+  width: 18px;
+  height: 18px;
+  cursor: nwse-resize;
+}
+
+/* 左下角画一小段斜纹，暗示这里能拖 */
+.dr-grip-xy::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  bottom: 4px;
+  width: 8px;
+  height: 8px;
+  border-left: 1px solid var(--line-3);
+  border-bottom: 1px solid var(--line-3);
+  opacity: 0.7;
+}
+
+.dr-grip:hover {
+  background: rgba(124, 154, 136, 0.22);
+}
+
+.dr-resizing,
+.dr-resizing * {
+  user-select: none;
+}
+
+.drawer-size-reset {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--ink-4);
+  cursor: pointer;
+}
+
+.drawer-size-reset svg {
+  width: 14px;
+  height: 14px;
+}
+
+.drawer-size-reset:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--ink-2);
 }
 
 .drawer-close {
@@ -3002,24 +5029,515 @@ onUnmounted(() => {
 
 .graph-body {
   align-items: center;
+  overflow: hidden;
+}
+
+/* 图形画布：占满抽屉剩余高度，尺寸由 ResizeObserver 量出来给布局用 */
+.graph-canvas {
+  flex: 1;
+  min-height: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+/* 族谱可能比抽屉大，这一条允许滚动看全 */
+.graph-canvas-scroll {
+  align-items: flex-start;
+  overflow: auto;
+}
+
+.graph-scale-note {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--ink-5);
+}
+
+.graph-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  align-self: stretch;
+  font-size: 10.5px;
+  color: var(--ink-4);
+}
+
+.graph-meta {
+  font-size: 11px;
+  color: var(--ink-4);
 }
 
 .graph-svg {
   display: block;
+  flex: none;
 }
 
-.graph-node-label {
+/* ── 关系图：人物 / 事物 / 事件各长各的样，一眼分得开 ── */
+.graph-node {
+  cursor: pointer;
+}
+
+.graph-node .gn-shape {
+  stroke-width: 1;
+  filter: drop-shadow(0 4px 10px rgba(89, 107, 94, 0.1));
+  transition: filter 140ms var(--ease), stroke 140ms var(--ease), fill 140ms var(--ease);
+}
+
+.graph-node:hover .gn-shape {
+  filter: drop-shadow(0 6px 14px rgba(89, 107, 94, 0.2));
+}
+
+/* 当前中心：描边加重、底色加深 */
+.graph-node.focus .gn-shape {
+  stroke-width: 2;
+  filter: drop-shadow(0 6px 16px rgba(93, 122, 106, 0.26));
+}
+
+.gn-shape.k-person {
+  fill: #e8efea;
+  stroke: #a6bfb0;
+}
+
+.gn-shape.k-thing {
+  fill: #edeaf0;
+  stroke: #b8b0c6;
+}
+
+.gn-shape.k-event {
+  fill: #efede7;
+  stroke: #d1ccc2;
+}
+
+.graph-node.focus .gn-shape.k-person {
+  fill: #dde5df;
+  stroke: #5d7a6a;
+}
+
+.graph-node.focus .gn-shape.k-thing {
+  fill: #e4e0ea;
+  stroke: #8f86a0;
+}
+
+.graph-node.focus .gn-shape.k-event {
+  fill: #e9e5dc;
+  stroke: #a0917c;
+}
+
+.graph-node .node-name {
   font-family: var(--font-sans);
-  font-size: 12px;
+  font-size: 12.5px;
   font-weight: 500;
-  fill: #2E3D34;
+  fill: #2e3d34;
   pointer-events: none;
+  user-select: none;
+}
+
+.graph-node .node-name.dark {
+  fill: #3b3740;
+}
+
+/* 图例 */
+.gn-legend {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 5px;
+  flex: none;
+  align-self: stretch;
+  padding-top: 2px;
+  font-size: 10px;
+  color: var(--ink-5);
+}
+
+.gn-key {
+  width: 14px;
+  height: 9px;
+  margin-left: 7px;
+  border-radius: 5px;
+  border: 1px solid #a6bfb0;
+  background: #e8efea;
+}
+
+.gn-key:first-child {
+  margin-left: 0;
+}
+
+/* 人物 = 圆形 */
+.gn-key.k-person {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+
+.gn-key.k-thing {
+  width: 9px;
+  height: 9px;
+  border-radius: 1px;
+  border-color: #b8b0c6;
+  background: #edeaf0;
+  transform: rotate(45deg);
+}
+
+.gn-key.k-event {
+  border-radius: 2px;
+  border-color: #d1ccc2;
+  background: #efede7;
+}
+
+.gn-key.g-male {
+  border-color: #a9bcca;
+  background: #e6edf2;
+}
+
+.gn-key.g-female {
+  border-color: #cbb0b4;
+  background: #f2e9ea;
+}
+
+.gn-key.g-unknown {
+  border-color: #d1ccc2;
+  background: #efede7;
+}
+
+.gn-sep {
+  width: 1px;
+  height: 10px;
+  margin: 0 5px;
+  background: var(--line-3);
+}
+
+/* ── 族谱图：一代一行 ── */
+.fam-edge {
+  fill: none;
+  stroke: #bdb6a9;
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.fam-edge.spouse {
+  stroke: #a6bfb0;
+  stroke-width: 1.6;
+}
+
+.fam-spouse {
+  fill: #7c9a88;
+}
+
+.fam-node {
+  stroke-width: 1;
+}
+
+.fam-node.g-male {
+  fill: #e6edf2;
+  stroke: #a9bcca;
+}
+
+.fam-node.g-female {
+  fill: #f2e9ea;
+  stroke: #cbb0b4;
+}
+
+.fam-node.g-unknown {
+  fill: #efede7;
+  stroke: #d1ccc2;
+}
+
+.fam-name {
+  font-family: var(--font-sans);
+  font-size: 12.5px;
+  font-weight: 500;
+  fill: #2e3d34;
+  pointer-events: none;
+  user-select: none;
+}
+
+.fam-meta {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  fill: #9c978e;
+  pointer-events: none;
+  user-select: none;
 }
 
 .graph-empty {
   font-family: var(--font-sans);
   font-size: 12.5px;
   fill: var(--ink-5);
+}
+
+/* ═══ 关系图：列表层 ═══ */
+.drawer-back {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink-3);
+  cursor: pointer;
+}
+
+.drawer-back:hover {
+  background: var(--hover-fill, #edeae4);
+  color: var(--ink-1);
+}
+
+.drawer-back svg {
+  width: 14px;
+  height: 14px;
+}
+
+.drawer-actions {
+  flex: none;
+  padding: 12px 14px 4px;
+}
+
+.drawer-actions .primary-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.drawer-actions svg {
+  width: 11px;
+  height: 11px;
+}
+
+.graph-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--r-lg, 10px);
+  background: transparent;
+  color: var(--ink-1);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 120ms var(--ease);
+}
+
+.graph-row:hover {
+  background: var(--event-fill);
+}
+
+.graph-row svg {
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: #7C9A88;
+}
+
+.graph-row-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.graph-row-time {
+  flex: none;
+  font-size: 10px;
+  color: var(--ink-5);
+}
+
+/* ═══ 关系图：详情层编辑 ═══ */
+.rel-row .row-del {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #b3aca2;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms var(--ease), background 120ms var(--ease), color 120ms var(--ease);
+}
+
+.rel-row:hover .row-del {
+  opacity: 1;
+}
+
+.rel-row .row-del:hover {
+  background: #f6e6e3;
+  color: #9c5a50;
+}
+
+.row-del svg {
+  width: 10px;
+  height: 10px;
+}
+
+.edge-add {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px dashed var(--line-3);
+  border-radius: var(--r-lg, 10px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.edge-add-title {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--ink-5);
+}
+
+.edge-add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.edge-arr {
+  flex: none;
+  color: var(--ink-5);
+  font-size: 11px;
+}
+
+.mini-input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  padding: 0 8px;
+  border: 1px solid var(--line-3);
+  border-radius: 7px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 11.5px;
+  color: var(--ink-1);
+  outline: 0;
+}
+
+.mini-input:focus {
+  border-color: #a6bfb0;
+}
+
+.primary-btn.sm {
+  flex: none;
+  height: 26px;
+  padding: 0 12px;
+  font-size: 11.5px;
+}
+
+.nodes-block {
+  margin-top: 12px;
+  padding: 0 2px;
+}
+
+.node-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.node-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 6px 3px 9px;
+  border-radius: 20px;
+  border: 1px solid transparent;
+  background: #e8efea;
+  font-size: 11px;
+  color: #2e3d34;
+}
+
+/* 关系图对象：按类型上色，和图形视图里的形状颜色对齐 */
+.node-chip.k-person {
+  border-color: #a6bfb0;
+  background: #e8efea;
+  color: #2e3d34;
+}
+
+.node-chip.k-thing {
+  border-color: #b8b0c6;
+  background: #edeaf0;
+  color: #3b3740;
+}
+
+.node-chip.k-event {
+  border-color: #d1ccc2;
+  background: #efede7;
+  color: #3e3a33;
+}
+
+/* 族谱成员：按性别上色 */
+.node-chip.g-male {
+  border-color: #a9bcca;
+  background: #e6edf2;
+  color: #34424d;
+}
+
+.node-chip.g-female {
+  border-color: #cbb0b4;
+  background: #f2e9ea;
+  color: #4a3a3d;
+}
+
+.node-chip.g-unknown {
+  border-color: #d1ccc2;
+  background: #efede7;
+  color: #4a4640;
+}
+
+.node-chip button {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: #8fa898;
+  cursor: pointer;
+}
+
+.node-chip button:hover {
+  background: rgba(0, 0, 0, 0.08);
+  color: #9c5a50;
+}
+
+.node-chip button svg {
+  width: 8px;
+  height: 8px;
+}
+
+.drawer-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--line-4);
+}
+
+.drawer-foot-note {
+  font-size: 10px;
+  color: var(--ink-5);
 }
 
 .slide-enter-active,
@@ -3220,5 +5738,100 @@ onUnmounted(() => {
 
 .ctx-menu button.danger {
   color: #A0574F;
+}
+
+/* ═══════════ 侧栏整体宽度拖柄 ═══════════ */
+.side-resize {
+  position: relative;
+  z-index: 5;
+  flex: none;
+  width: 5px;
+  margin: 0 -2px;
+  cursor: col-resize;
+  background: transparent;
+  transition: background 140ms var(--ease);
+}
+
+.side-resize:hover,
+.side-resize.active {
+  background: rgba(124, 154, 136, 0.35);
+}
+
+/* ═══════════ 工具栏握把 / 拖动态 ═══════════ */
+.tb-btn.grip {
+  cursor: grab;
+}
+
+.toolbar.tb-dragging,
+.toolbar.tb-dragging .tb-btn.grip {
+  cursor: grabbing;
+}
+
+.toolbar.tb-dragging {
+  box-shadow: 0 12px 30px -6px rgba(89, 84, 74, 0.24);
+}
+
+/* 吸附回左侧原位时给一圈很淡的提示，不做大动作 */
+.toolbar.tb-pinned {
+  box-shadow: var(--sh-float), 0 0 0 1px rgba(124, 154, 136, 0.32);
+}
+
+/* ═══════════ 关系图详情层：新增对象 / 关系 ═══════════ */
+.edge-add-note {
+  margin-left: 6px;
+  font-size: 9.5px;
+  font-weight: 400;
+  color: var(--ink-5);
+}
+
+.edge-add-empty {
+  margin: 2px 0 0;
+  font-size: 10.5px;
+  color: var(--ink-5);
+}
+.edge-add-hint {
+  margin: 2px 0 0;
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--ink-5);
+}
+
+.mini-select-s {
+  flex: none;
+  width: 74px;
+}
+
+/* 图形视图里的关系标签：白色光晕，压在连线上也读得清 */
+.edge-label {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  fill: #6B665E;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: rgba(255, 255, 255, 0.92);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+/* 更小一号的幽灵按钮（「从画布重新提取」） */
+.ghost-btn.xs {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 11px;
+}
+
+.ghost-btn.xs svg {
+  width: 12px;
+  height: 12px;
+}
+
+.ghost-btn.xs:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 </style>

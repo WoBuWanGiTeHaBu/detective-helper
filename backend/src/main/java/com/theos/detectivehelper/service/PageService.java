@@ -1,8 +1,11 @@
 package com.theos.detectivehelper.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.theos.detectivehelper.common.ErrorCode;
 import com.theos.detectivehelper.common.exception.BusinessException;
 import com.theos.detectivehelper.domain.Page;
+import com.theos.detectivehelper.dto.CanvasResponse;
 import com.theos.detectivehelper.dto.PageCreateDTO;
 import com.theos.detectivehelper.dto.PageSortDTO;
 import com.theos.detectivehelper.dto.PageUpdateDTO;
@@ -12,6 +15,7 @@ import com.theos.detectivehelper.vo.PageVO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -19,6 +23,16 @@ import java.util.stream.Collectors;
  * 页面服务
  * <p>
  * 页面挂在事件（event）下，画布数据以 canvas_data 字段整体存库。
+ * <p>
+ * 画布读写语义（重要）：
+ * <ul>
+ *   <li>整个画布作为一个 JSON 对象存进 canvas_data（SQLite TEXT，无长度限制），
+ *       objects / relationships / annotations / timelines 是它的四个字段，
+ *       因此一次 UPDATE 就是一次完整替换，天然具备事务性，不存在「清了对象但没清连线」的中间态。</li>
+ *   <li>{@code PUT /api/pages/{id}/canvas} 是<b>整体覆盖</b>：请求体就是新的完整画布，
+ *       某个数组传 {@code []} 即表示清空该部分。</li>
+ *   <li>{@code GET} 返回的四个数组一定非 null（最坏是 {@code []}），可以直接当作 PUT 的请求体回传。</li>
+ * </ul>
  */
 @Service
 @Transactional
@@ -27,12 +41,20 @@ public class PageService {
     /** 画布数据单页上限：1MB */
     private static final int MAX_CANVAS_LENGTH = 1024 * 1024;
 
+    /** 画布背景默认值 */
+    private static final String DEFAULT_BACKGROUND = "plain";
+
     private final PageRepository pageRepository;
     private final EventRepository eventRepository;
+    private final ObjectMapper objectMapper;
+    private final BookService bookService;
 
-    public PageService(PageRepository pageRepository, EventRepository eventRepository) {
+    public PageService(PageRepository pageRepository, EventRepository eventRepository,
+                       ObjectMapper objectMapper, BookService bookService) {
         this.pageRepository = pageRepository;
         this.eventRepository = eventRepository;
+        this.objectMapper = objectMapper;
+        this.bookService = bookService;
     }
 
     /**
@@ -49,6 +71,7 @@ public class PageService {
         page.setSortOrder(getNextSortOrder(eventId));
 
         Page savedPage = pageRepository.save(page);
+        touchBookByEvent(eventId);
         return toVO(savedPage);
     }
 
@@ -62,6 +85,7 @@ public class PageService {
         page.setName(dto.getName());
 
         Page savedPage = pageRepository.save(page);
+        touchBookByEvent(page.getEventId());
         return toVO(savedPage);
     }
 
@@ -69,10 +93,10 @@ public class PageService {
      * 删除页面
      */
     public void deletePage(Long id) {
-        if (!pageRepository.findById(id).isPresent()) {
-            throw new BusinessException(ErrorCode.PAGE_NOT_FOUND);
-        }
+        Page page = pageRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PAGE_NOT_FOUND));
         pageRepository.deleteById(id);
+        touchBookByEvent(page.getEventId());
     }
 
     /**
@@ -98,25 +122,101 @@ public class PageService {
 
     /**
      * 获取画布数据
+     * <p>
+     * 返回结构化的完整画布（四个数组保证非 null），前端拿到的东西可以直接原样 PUT 回去。
      */
-    public PageVO getPageCanvas(Long id) {
-        return getPageById(id);
+    public CanvasResponse getPageCanvas(Long id) {
+        Page page = pageRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.PAGE_NOT_FOUND));
+        return decodeCanvas(page.getCanvasData());
     }
 
     /**
-     * 保存画布数据
+     * 保存画布数据（整体覆盖）
+     *
+     * @param canvas 新的完整画布；四个数组为 null 时按空数组处理
+     * @return 实际写库后的完整画布，便于前端校正本地状态
      */
-    public PageVO savePageCanvas(Long id, String canvasData) {
+    public CanvasResponse savePageCanvas(Long id, CanvasResponse canvas) {
         Page page = pageRepository.findById(id)
                 .orElseThrow(() -> new BusinessException(ErrorCode.PAGE_NOT_FOUND));
 
-        if (canvasData != null && canvasData.length() > MAX_CANVAS_LENGTH) {
+        if (canvas == null) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "画布数据不能为空");
+        }
+
+        CanvasResponse normalized = normalize(canvas);
+        String canvasData;
+        try {
+            canvasData = objectMapper.writeValueAsString(normalized);
+        } catch (JsonProcessingException e) {
+            throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "画布数据格式不合法");
+        }
+
+        // 按字符数估算，中文等多字节字符会被低估，这里只做粗粒度兜底
+        if (canvasData.length() > MAX_CANVAS_LENGTH) {
             throw new BusinessException(ErrorCode.BAD_REQUEST.getCode(), "画布数据超过大小限制");
         }
 
         page.setCanvasData(canvasData);
-        Page savedPage = pageRepository.save(page);
-        return toVO(savedPage);
+        pageRepository.save(page);
+        touchBookByEvent(page.getEventId());
+        return normalized;
+    }
+
+    /**
+     * 把库里的 canvas_data 还原成结构化画布；空值或损坏时返回空画布，不让前端拿到 null
+     */
+    private CanvasResponse decodeCanvas(String canvasData) {
+        if (canvasData == null || canvasData.isBlank()) {
+            return emptyCanvas();
+        }
+        try {
+            return normalize(objectMapper.readValue(canvasData, CanvasResponse.class));
+        } catch (Exception e) {
+            return emptyCanvas();
+        }
+    }
+
+    /** 补齐缺省字段，保证读写两端形状一致 */
+    private CanvasResponse normalize(CanvasResponse canvas) {
+        if (canvas == null) {
+            return emptyCanvas();
+        }
+        if (canvas.getObjects() == null) {
+            canvas.setObjects(new ArrayList<>());
+        }
+        if (canvas.getRelationships() == null) {
+            canvas.setRelationships(new ArrayList<>());
+        }
+        if (canvas.getAnnotations() == null) {
+            canvas.setAnnotations(new ArrayList<>());
+        }
+        if (canvas.getTimelines() == null) {
+            canvas.setTimelines(new ArrayList<>());
+        }
+        if (canvas.getBackground() == null || canvas.getBackground().isBlank()) {
+            canvas.setBackground(DEFAULT_BACKGROUND);
+        }
+        return canvas;
+    }
+
+    private CanvasResponse emptyCanvas() {
+        CanvasResponse canvas = new CanvasResponse();
+        canvas.setObjects(new ArrayList<>());
+        canvas.setRelationships(new ArrayList<>());
+        canvas.setAnnotations(new ArrayList<>());
+        canvas.setTimelines(new ArrayList<>());
+        canvas.setBackground(DEFAULT_BACKGROUND);
+        return canvas;
+    }
+
+    /**
+     * 把页面所属事件映射回案件书，刷新其内容改动时间
+     */
+    private void touchBookByEvent(Long eventId) {
+        eventRepository.findById(eventId)
+                .ifPresent(event -> bookService.touchContent(event.getBookId()));
     }
 
     /**
@@ -138,6 +238,7 @@ public class PageService {
 
             pageRepository.updateSortOrder(pageIds.get(i), i + 1);
         }
+        touchBookByEvent(eventId);
     }
 
     /**
@@ -158,6 +259,7 @@ public class PageService {
 
             pageRepository.updateSortOrder(pageIds.get(i), i);
         }
+        touchBookByEvent(eventId);
     }
 
     private int getNextSortOrder(Long eventId) {

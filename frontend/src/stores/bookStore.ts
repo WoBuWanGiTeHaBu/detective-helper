@@ -6,6 +6,14 @@ import type { BookResponse, CreateBookRequest, UpdateBookRequest } from '@/api/t
 /** 书架排序方式 */
 export type SortMode = 'recent' | 'created' | 'name'
 
+/**
+ * 内容最后改动时间：改书名 / 换封面不动它（后端第十节 contentUpdatedAt）。
+ * 后端未实现该字段时回退 updatedAt —— 行为与旧版一致，但不会更糟。
+ */
+export function bookContentTime(b: BookResponse): string {
+  return b.contentUpdatedAt || b.updatedAt
+}
+
 export const useBookStore = defineStore('book', () => {
   const books = ref<BookResponse[]>([])
   const loading = ref(false)
@@ -24,16 +32,17 @@ export const useBookStore = defineStore('book', () => {
         return list.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt))
       case 'recent':
       default:
-        return list.sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
+        // 「按最近编辑」按内容改动时间排：改书名 / 换封面不应把书顶到最前
+        return list.sort((a, b) => +new Date(bookContentTime(b)) - +new Date(bookContentTime(a)))
     }
   })
 
-  /** 最近一次更新时间（用于副标题） */
+  /** 最近一次内容更新时间（用于副标题） */
   const latestUpdatedAt = computed(() => {
     if (!books.value.length) return null
     return books.value.reduce(
-      (acc, b) => (+new Date(b.updatedAt) > +new Date(acc) ? b.updatedAt : acc),
-      books.value[0].updatedAt
+      (acc, b) => (+new Date(bookContentTime(b)) > +new Date(acc) ? bookContentTime(b) : acc),
+      bookContentTime(books.value[0])
     )
   })
 

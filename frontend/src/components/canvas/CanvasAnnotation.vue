@@ -24,8 +24,8 @@
 
       <input
         ref="titleEl"
+        v-model="titleDraft"
         class="anno-title"
-        :value="title"
         placeholder="推理批注"
         @blur="commitContent"
         @keyup.enter="($event.target as HTMLInputElement).blur()"
@@ -184,7 +184,27 @@ function parse(content: string): { title: string; body: string } {
 
 const title = computed(() => parsed.value.title)
 
-/** 标题输入框：提交时直接读 DOM，清空标题也能正确生效 */
+/**
+ * 标题输入框的本地草稿。
+ * 不能用 :value="title" 受控绑定——hovering 等任何响应式状态变化触发重渲染时，
+ * Vue 会把 DOM value 拍回旧的 title，用户刚打的字就被清掉了（正是「打几个字立马清空」的原因）。
+ */
+const titleDraft = ref('')
+
+/** 标题草稿与 props 同步：标题输入框未聚焦时才回填，避免打断输入 */
+watch(
+  () => props.annotation.content,
+  () => {
+    if (document.activeElement !== titleEl.value) titleDraft.value = title.value
+  }
+)
+
+// 初始回填（含挂载后 DOM 就绪的时机）
+onMounted(() => {
+  titleDraft.value = title.value
+})
+
+/** 标题输入框：提交时读草稿，清空标题也能正确生效 */
 const titleEl = ref<HTMLInputElement | null>(null)
 
 /** 拼回 content：标题 <h4> + 正文 HTML */
@@ -195,7 +215,7 @@ function compose(bodyHtml: string, titleText: string): string {
 }
 
 function currentTitle(): string {
-  return titleEl.value?.value ?? title.value
+  return titleDraft.value
 }
 
 /** 把 DOM 里的正文写回 content 并触发保存 */

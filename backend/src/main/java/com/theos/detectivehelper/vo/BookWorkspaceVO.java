@@ -48,9 +48,11 @@ public class BookWorkspaceVO {
         this.relationGraphs = relationGraphs;
     }
 
+    //内部类
     /**
      * 工作区事件（含页面列表）
      */
+
     public static class WorkspaceEventVO {
 
         private Long id;

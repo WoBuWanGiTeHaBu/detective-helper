@@ -28,11 +28,14 @@ public class EventService {
     private final EventRepository eventRepository;
     private final PageRepository pageRepository;
     private final BookRepository bookRepository;
+    private final BookService bookService;
 
-    public EventService(EventRepository eventRepository, PageRepository pageRepository, BookRepository bookRepository) {
+    public EventService(EventRepository eventRepository, PageRepository pageRepository,
+                        BookRepository bookRepository, BookService bookService) {
         this.eventRepository = eventRepository;
         this.pageRepository = pageRepository;
         this.bookRepository = bookRepository;
+        this.bookService = bookService;
     }
 
     /**
@@ -49,6 +52,7 @@ public class EventService {
         event.setSortOrder(getNextSortOrder(bookId));
 
         Event savedEvent = eventRepository.save(event);
+        bookService.touchContent(bookId);
         return toVO(savedEvent);
     }
 
@@ -62,6 +66,7 @@ public class EventService {
         event.setName(dto.getName());
 
         Event savedEvent = eventRepository.save(event);
+        bookService.touchContent(event.getBookId());
         return toVO(savedEvent);
     }
 
@@ -69,10 +74,10 @@ public class EventService {
      * 删除事件
      */
     public void deleteEvent(Long id) {
-        if (!eventRepository.findById(id).isPresent()) {
-            throw new BusinessException(ErrorCode.EVENT_NOT_FOUND);
-        }
+        Event event = eventRepository.findById(id)
+                .orElseThrow(() -> new BusinessException(ErrorCode.EVENT_NOT_FOUND));
         eventRepository.deleteById(id);
+        bookService.touchContent(event.getBookId());
     }
 
     /**
@@ -115,6 +120,7 @@ public class EventService {
 
             eventRepository.updateSortOrder(eventIds.get(i), i + 1);
         }
+        bookService.touchContent(bookId);
     }
 
     private int getNextSortOrder(Long bookId) {

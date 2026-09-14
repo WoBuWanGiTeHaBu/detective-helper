@@ -9,8 +9,10 @@ import com.theos.detectivehelper.vo.BookVO;
 import com.theos.detectivehelper.vo.BookWorkspaceVO;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * 案件书控制器
@@ -59,6 +61,18 @@ public class BookController {
     public Result<BookVO> getBookById(@PathVariable Long id) {
         BookVO bookVO = bookService.getBookById(id);
         return Result.success(bookVO);
+    }
+
+    /**
+     * 上传书籍封面图片（multipart/form-data，字段名 file，JPEG/PNG/WebP，≤2MB）
+     * <p>
+     * 成功返回 {"coverValue":"covers/book_x.webp"}，书籍 coverType 自动切为 image；
+     * 静态访问走 /files/covers/**（前端 coverUrl() 拼 STATIC_BASE=/files）。
+     */
+    @PostMapping("/{id}/cover")
+    public Result<Map<String, String>> uploadBookCover(@PathVariable Long id,
+                                                       @RequestParam("file") MultipartFile file) {
+        return Result.success(bookService.uploadCover(id, file));
     }
 
     /**

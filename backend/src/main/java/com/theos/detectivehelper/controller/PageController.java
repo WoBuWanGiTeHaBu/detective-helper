@@ -1,11 +1,11 @@
 package com.theos.detectivehelper.controller;
 
 import com.theos.detectivehelper.common.Result;
+import com.theos.detectivehelper.dto.CanvasResponse;
 import com.theos.detectivehelper.dto.PageCreateDTO;
 import com.theos.detectivehelper.dto.PageUpdateDTO;
 import com.theos.detectivehelper.dto.SortItem;
 import com.theos.detectivehelper.service.PageService;
-import com.theos.detectivehelper.vo.CanvasVO;
 import com.theos.detectivehelper.vo.PageVO;
 import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
@@ -84,20 +84,25 @@ public class PageController {
 
     /**
      * 获取画布数据
+     * <p>
+     * 返回完整的画布对象（objects / relationships / annotations / timelines 均非 null），
+     * 与 PUT 的请求体同构，可原样回传。
      */
     @GetMapping("/api/pages/{id}/canvas")
-    public Result<CanvasVO> getCanvas(@PathVariable Long id) {
-        PageVO pageVO = pageService.getPageCanvas(id);
-        return Result.success(new CanvasVO(id, pageVO.getCanvasData()));
+    public Result<CanvasResponse> getCanvas(@PathVariable Long id) {
+        return Result.success(pageService.getPageCanvas(id));
     }
 
     /**
-     * 保存画布数据
+     * 保存画布数据（整体覆盖 + 事务性写入）
+     * <p>
+     * 请求体就是新的完整画布，后端不做合并：某个数组传 {@code []} 即清空该部分。
+     * 成功时回写保存后的完整画布，code 恒为 200。
      */
     @PutMapping("/api/pages/{id}/canvas")
-    public Result<Void> saveCanvas(@PathVariable Long id, @RequestBody String canvasData) {
-        pageService.savePageCanvas(id, canvasData);
-        return Result.success();
+    public Result<CanvasResponse> saveCanvas(@PathVariable Long id,
+                                             @RequestBody(required = false) CanvasResponse canvas) {
+        return Result.success(pageService.savePageCanvas(id, canvas));
     }
 
 }

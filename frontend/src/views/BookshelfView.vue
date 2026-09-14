@@ -37,7 +37,55 @@
         <span>新建书籍</span>
       </button>
 
-      <button class="avatar" type="button">沈</button>
+      <div class="avatar-wrap">
+        <button class="avatar" type="button" @click.stop="profileOpen = !profileOpen">
+          {{ userStore.avatarChar() }}
+        </button>
+
+        <!-- 用户资料面板：展示名 + 主题（深色 / 羊皮纸为预留位） -->
+        <div v-if="profileOpen" class="profile-pop" @click.stop>
+          <div class="profile-head">
+            <span class="profile-avatar">{{ profileChar }}</span>
+            <div class="profile-head-text">
+              <div class="profile-name">{{ profileDraft.name.trim() || '用户' }}</div>
+              <div class="profile-sub">单机应用 · 资料仅本机可见</div>
+            </div>
+          </div>
+
+          <label class="p-field">
+            <span class="p-label">展示名</span>
+            <input
+              v-model="profileDraft.name"
+              class="p-input"
+              placeholder="用户"
+              maxlength="24"
+              @keyup.enter="saveProfile"
+            />
+          </label>
+
+          <div class="p-field">
+            <span class="p-label">主题<span class="p-opt">深色 / 羊皮纸为预留位</span></span>
+            <div class="theme-chips">
+              <button
+                v-for="t in THEME_OPTIONS"
+                :key="t.value"
+                type="button"
+                class="theme-chip"
+                :class="{ active: profileDraft.theme === t.value, disabled: !t.ready }"
+                :disabled="!t.ready"
+                @click="profileDraft.theme = t.value"
+              >
+                {{ t.label }}
+              </button>
+            </div>
+          </div>
+
+          <div class="profile-actions">
+            <button class="p-ghost" type="button" @click="profileOpen = false">取消</button>
+            <button class="p-primary" type="button" @click="saveProfile">保存</button>
+          </div>
+        </div>
+      </div>
     </header>
 
     <!-- ═══════════ 内容区 ═══════════ -->
@@ -123,7 +171,7 @@
             </div>
             <p class="book-meta">
               <span>{{ book.coverText || '案件' }}</span>
-              <span>{{ relativeTime(book.updatedAt) }}</span>
+              <span>{{ relativeTime(bookContentTime(book)) }}</span>
             </p>
           </article>
 
@@ -252,10 +300,11 @@
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Modal, message } from 'ant-design-vue'
-import { useBookStore } from '@/stores/bookStore'
+import { useBookStore, bookContentTime } from '@/stores/bookStore'
 import type { SortMode } from '@/stores/bookStore'
+import { useUserStore } from '@/stores/userStore'
 import { bookApi } from '@/api/book'
-import type { BookResponse } from '@/api/types'
+import type { BookResponse, ThemeId } from '@/api/types'
 import { coverUrl } from '@/utils/coverUrl'
 import {
   COVER_TOKENS,
@@ -268,6 +317,7 @@ import {
 
 const router = useRouter()
 const bookStore = useBookStore()
+const userStore = useUserStore()
 
 /** 每页 11 格 = 10 本书 + 1 个新建位 */
 const PER_PAGE = 11
@@ -277,10 +327,38 @@ const page = ref(1)
 const sortMenuOpen = ref(false)
 
 const SORT_OPTIONS: { value: SortMode; label: string }[] = [
-  { value: 'recent', label: '按最近打开' },
+  { value: 'recent', label: '按最近编辑' },
   { value: 'created', label: '按创建时间' },
   { value: 'name', label: '按名称' }
 ]
+
+/* ---------------- 用户资料（展示名 + 主题预留） ---------------- */
+const profileOpen = ref(false)
+const profileDraft = reactive({ name: '', theme: 'light' as ThemeId })
+
+const THEME_OPTIONS: { value: ThemeId; label: string; ready: boolean }[] = [
+  { value: 'light', label: '浅色', ready: true },
+  { value: 'dark', label: '深色', ready: false },
+  { value: 'sepia', label: '羊皮纸', ready: false }
+]
+
+const profileChar = computed(() => {
+  const n = profileDraft.name.trim()
+  return n ? n[0] : '用'
+})
+
+watch(profileOpen, (open) => {
+  if (open) {
+    profileDraft.name = userStore.displayName
+    profileDraft.theme = userStore.theme
+  }
+})
+
+async function saveProfile() {
+  await userStore.save(profileDraft.name, profileDraft.theme)
+  profileOpen.value = false
+  message.success('已保存')
+}
 
 /* ---------------- 计算 ---------------- */
 const filteredBooks = computed(() => {
@@ -317,6 +395,7 @@ const sortLabel = computed(
 /* ---------------- 生命周期 ---------------- */
 onMounted(() => {
   bookStore.fetchBooks()
+  userStore.load()
   document.addEventListener('click', closeSortMenu)
 })
 
@@ -386,6 +465,7 @@ function openBook(book: BookResponse) {
 
 function closeSortMenu() {
   sortMenuOpen.value = false
+  profileOpen.value = false
 }
 
 function pickSort(mode: SortMode) {
@@ -470,7 +550,7 @@ async function submitDialog() {
         name,
         coverType: 'color',
         coverValue: token.from,
-        coverText: dialog.coverText.trim() || null
+        coverText: dialog.coverText.trim()
       })
       dialog.open = false
       message.success('已保存')
@@ -707,6 +787,11 @@ async function onCoverFileChange(e: Event) {
   transform: translateY(1px);
 }
 
+.avatar-wrap {
+  position: relative;
+  flex: none;
+}
+
 .avatar {
   display: flex;
   align-items: center;
@@ -722,6 +807,172 @@ async function onCoverFileChange(e: Event) {
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
+  transition: background 160ms var(--ease);
+}
+
+.avatar:hover {
+  background: #DFE9E1;
+}
+
+/* ═══════════ 用户资料面板 ═══════════ */
+.profile-pop {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 268px;
+  padding: 18px;
+  background: var(--bg-card);
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-2xl);
+  box-shadow: var(--sh-panel);
+}
+
+.profile-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.profile-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--green-tint);
+  color: var(--green-deep);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.profile-name {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.3;
+  color: var(--ink-1);
+  max-width: 180px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.profile-sub {
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--ink-5);
+}
+
+.p-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.p-label {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: var(--ink-3);
+}
+
+.p-opt {
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--ink-5);
+}
+
+.p-input {
+  height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-lg);
+  background: #fff;
+  font-family: inherit;
+  font-size: 13px;
+  color: var(--ink-2);
+  outline: 0;
+  transition: border-color 160ms var(--ease);
+}
+
+.p-input:focus {
+  border-color: var(--green-line);
+}
+
+.theme-chips {
+  display: flex;
+  gap: 8px;
+}
+
+.theme-chip {
+  flex: 1;
+  height: 30px;
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-md);
+  background: #fff;
+  color: var(--ink-3);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 160ms var(--ease);
+}
+
+.theme-chip.active {
+  background: var(--green-tint);
+  border-color: var(--green-line);
+  color: var(--green-ink);
+  font-weight: 500;
+}
+
+.theme-chip.disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.profile-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.p-ghost,
+.p-primary {
+  height: 32px;
+  padding: 0 14px;
+  border-radius: var(--r-lg);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 160ms var(--ease);
+}
+
+.p-ghost {
+  border: 1px solid var(--line-1);
+  background: #fff;
+  color: var(--ink-3);
+}
+
+.p-ghost:hover {
+  color: var(--ink-2);
+  border-color: var(--green-line);
+}
+
+.p-primary {
+  border: 0;
+  background: var(--green);
+  color: #fff;
+  box-shadow: var(--sh-btn);
+}
+
+.p-primary:hover {
+  background: var(--green-deep);
 }
 
 /* ═══════════ 内容区 ═══════════ */
