@@ -1,72 +1,57 @@
 package com.theos.detectivehelper.repository;
 
 import com.theos.detectivehelper.domain.RelationGraph;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
-import org.springframework.stereotype.Repository;
+import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * 关系图仓库
+ * 关系图仓储（MyBatis）。对外签名与原 JdbcTemplate 版本保持一致。
  */
-@Repository
-public class RelationGraphRepository {
+@Mapper
+public interface RelationGraphRepository {
 
-    private final JdbcTemplate jdbcTemplate;
+    @Insert("""
+            INSERT INTO relation_graph (book_id, name, data, created_at, updated_at)
+            VALUES (#{bookId}, #{name}, #{data}, #{createdAt}, #{updatedAt})
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertRow(RelationGraph graph);
 
-    public RelationGraphRepository(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
+    @Update("UPDATE relation_graph SET name = #{name}, data = #{data}, updated_at = #{updatedAt} WHERE id = #{id}")
+    int updateRow(RelationGraph graph);
 
-    private final RowMapper<RelationGraph> relationGraphRowMapper = new RowMapper<RelationGraph>() {
-        @Override
-        public RelationGraph mapRow(ResultSet rs, int rowNum) throws SQLException {
-            RelationGraph graph = new RelationGraph();
-            graph.setId(rs.getLong("id"));
-            graph.setBookId(rs.getLong("book_id"));
-            graph.setName(rs.getString("name"));
-            graph.setData(rs.getString("data"));
-            graph.setCreatedAt(rs.getString("created_at"));
-            graph.setUpdatedAt(rs.getString("updated_at"));
-            return graph;
-        }
-    };
+    @Select("SELECT * FROM relation_graph WHERE id = #{id}")
+    RelationGraph selectRowById(@Param("id") Long id);
 
-    public RelationGraph save(RelationGraph graph) {
+    default RelationGraph save(RelationGraph graph) {
         if (graph.getId() == null) {
-            String sql = "INSERT INTO relation_graph (book_id, name, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)";
-            jdbcTemplate.update(sql, graph.getBookId(), graph.getName(), graph.getData(), graph.getCreatedAt(), graph.getUpdatedAt());
-            graph.setId(jdbcTemplate.queryForObject("SELECT last_insert_rowid()", Long.class));
+            insertRow(graph);
         } else {
-            String sql = "UPDATE relation_graph SET name = ?, data = ?, updated_at = ? WHERE id = ?";
-            graph.setUpdatedAt(java.time.Instant.now().toString());
-            jdbcTemplate.update(sql, graph.getName(), graph.getData(), graph.getUpdatedAt(), graph.getId());
+            graph.setUpdatedAt(Instant.now().toString());
+            updateRow(graph);
         }
         return graph;
     }
 
-    public Optional<RelationGraph> findById(Long id) {
-        String sql = "SELECT * FROM relation_graph WHERE id = ?";
-        return jdbcTemplate.query(sql, relationGraphRowMapper, id).stream().findFirst();
+    default Optional<RelationGraph> findById(Long id) {
+        return Optional.ofNullable(selectRowById(id));
     }
 
-    public List<RelationGraph> findByBookId(Long bookId) {
-        String sql = "SELECT * FROM relation_graph WHERE book_id = ? ORDER BY created_at DESC";
-        return jdbcTemplate.query(sql, relationGraphRowMapper, bookId);
-    }
+    @Select("SELECT * FROM relation_graph WHERE book_id = #{bookId} ORDER BY created_at DESC")
+    List<RelationGraph> findByBookId(@Param("bookId") Long bookId);
 
-    public void deleteById(Long id) {
-        String sql = "DELETE FROM relation_graph WHERE id = ?";
-        jdbcTemplate.update(sql, id);
-    }
+    @Delete("DELETE FROM relation_graph WHERE id = #{id}")
+    void deleteById(@Param("id") Long id);
 
-    public void deleteByBookId(Long bookId) {
-        String sql = "DELETE FROM relation_graph WHERE book_id = ?";
-        jdbcTemplate.update(sql, bookId);
-    }
-
+    @Delete("DELETE FROM relation_graph WHERE book_id = #{bookId}")
+    void deleteByBookId(@Param("bookId") Long bookId);
 }

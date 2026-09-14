@@ -822,20 +822,28 @@
                   :placeholder="extKind === 'relation' ? '名称，如 张远山' : '姓名，如 沈砚清'"
                   @keyup.enter="addExtNode"
                 />
-                <select
+                <a-select
                   v-if="extKind === 'relation'"
-                  v-model="nodeDraft.type"
+                  v-model:value="nodeDraft.type"
                   class="mini-select mini-select-s"
+                  size="small"
+                  :dropdown-match-select-width="false"
                 >
-                  <option value="person">人物</option>
-                  <option value="thing">事物</option>
-                  <option value="event">事件</option>
-                </select>
-                <select v-else v-model="nodeDraft.gender" class="mini-select mini-select-s">
-                  <option value="male">男</option>
-                  <option value="female">女</option>
-                  <option value="unknown">不详</option>
-                </select>
+                  <a-select-option value="person">人物</a-select-option>
+                  <a-select-option value="thing">事物</a-select-option>
+                  <a-select-option value="event">事件</a-select-option>
+                </a-select>
+                <a-select
+                  v-else
+                  v-model:value="nodeDraft.gender"
+                  class="mini-select mini-select-s"
+                  size="small"
+                  :dropdown-match-select-width="false"
+                >
+                  <a-select-option value="male">男</a-select-option>
+                  <a-select-option value="female">女</a-select-option>
+                  <a-select-option value="unknown">不详</a-select-option>
+                </a-select>
                 <button
                   class="primary-btn sm"
                   type="button"
@@ -877,29 +885,54 @@
                 <span class="edge-add-note">{{ extEdges.length }} 条</span>
               </div>
               <div class="edge-add-row">
-                <select v-model="edgeDraft.source" class="mini-select">
-                  <option value="" disabled>{{ extKind === 'relation' ? '起点' : '父 / 母' }}</option>
-                  <option v-for="n in extNodes" :key="n.id" :value="n.id">{{ n.name }}</option>
-                </select>
+                <a-select
+                  v-model:value="edgeSourceModel"
+                  class="mini-select"
+                  size="small"
+                  :placeholder="extKind === 'relation' ? '起点' : '父 / 母'"
+                  :dropdown-match-select-width="false"
+                >
+                  <a-select-option v-for="n in extNodes" :key="n.id" :value="n.id">
+                    {{ n.name }}
+                  </a-select-option>
+                </a-select>
                 <span class="edge-arr">→</span>
-                <select v-model="edgeDraft.target" class="mini-select">
-                  <option value="" disabled>{{ extKind === 'relation' ? '终点' : '子女 / 配偶' }}</option>
-                  <option v-for="n in extNodes" :key="n.id" :value="n.id">{{ n.name }}</option>
-                </select>
+                <a-select
+                  v-model:value="edgeTargetModel"
+                  class="mini-select"
+                  size="small"
+                  :placeholder="extKind === 'relation' ? '终点' : '子女 / 配偶'"
+                  :dropdown-match-select-width="false"
+                >
+                  <a-select-option v-for="n in extNodes" :key="n.id" :value="n.id">
+                    {{ n.name }}
+                  </a-select-option>
+                </a-select>
               </div>
               <div class="edge-add-row">
                 <template v-if="extKind === 'relation'">
                   <input v-model="edgeDraft.label" class="mini-input" placeholder="关系说明，如 父子" />
-                  <select v-model="edgeDraft.type" class="mini-select mini-select-s">
-                    <option value="unidirectional">单向</option>
-                    <option value="bidirectional">双向</option>
-                    <option value="dashed">虚线</option>
-                  </select>
+                  <a-select
+                    v-model:value="edgeDraft.type"
+                    class="mini-select mini-select-s"
+                    size="small"
+                    :dropdown-match-select-width="false"
+                  >
+                    <a-select-option value="unidirectional">单向</a-select-option>
+                    <a-select-option value="bidirectional">双向</a-select-option>
+                    <a-select-option value="dashed">虚线</a-select-option>
+                  </a-select>
                 </template>
-                <select v-else v-model="familyRelType" class="mini-select">
-                  <option value="parent-child">父母 → 子女</option>
-                  <option value="spouse">配偶</option>
-                </select>
+                <a-select
+                  v-else
+                  v-model:value="familyRelType"
+                  class="mini-select"
+                  size="small"
+                  :dropdown-match-select-width="false"
+                >
+                  <a-select-option value="parent-child">父母 → 子女</a-select-option>
+                  <a-select-option value="spouse">配偶</a-select-option>
+                </a-select>
                 <button
                   class="primary-btn sm"
                   type="button"
@@ -2809,6 +2842,26 @@ const edgeDraft = reactive({
   target: '',
   label: '',
   type: 'unidirectional' as RelationshipType
+})
+
+/*
+  antd 的 Select 只有在值为 undefined / null 时才显示 placeholder，
+  空串会被当作"确实选中了一个空值"，于是起点/终点位置看起来是空白而不是提示。
+  草稿本身继续用空串（addExtRelation / canAddExtRelation 的判空逻辑不动），
+  这里只垫一层转换。
+*/
+const edgeSourceModel = computed<string | undefined>({
+  get: () => edgeDraft.source || undefined,
+  set: (v) => {
+    edgeDraft.source = v ?? ''
+  }
+})
+
+const edgeTargetModel = computed<string | undefined>({
+  get: () => edgeDraft.target || undefined,
+  set: (v) => {
+    edgeDraft.target = v ?? ''
+  }
 })
 
 /** 详情层「新增对象 / 成员」的草稿 */
@@ -4897,17 +4950,12 @@ onUnmounted(() => {
   color: var(--ink-4);
 }
 
+/* .mini-select 现在挂在 antd 的 <a-select> 上（原来是原生 <select>）。
+   原生控件那套 border / padding / height 直接加在 antd 外层容器上会变成"框套框"，
+   所以这里只负责宽度分配，外观统一交给 styles/global.css 的 .mini-select.ant-select。 */
 .mini-select {
-  flex: 1;
-  height: 30px;
-  padding: 0 8px;
-  border: 1px solid var(--line-1);
-  border-radius: var(--r-md);
-  background: #fff;
-  font-family: inherit;
-  font-size: 12.5px;
-  color: var(--ink-3);
-  outline: 0;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .pill-group {

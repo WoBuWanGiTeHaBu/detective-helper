@@ -78,10 +78,25 @@
   --sh-node:    0 6px 14px rgba(89, 107, 94, 0.13);     /* 画布节点 */
   --sh-zoom:    0 4px 12px rgba(89, 84, 74, 0.10);      /* 缩放条 */
 
-  /* ---------- 3.8 字体 ---------- */
-  --font-serif: "Source Han Serif CN", "Noto Serif SC", "Songti SC", "SimSun", serif;
-  --font-sans:  "Noto Sans SC", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-  --font-mono:  "Sarasa Gothic SC", "Sarasa Mono SC", "Noto Sans Mono", monospace;
+  /* ---------- 3.8 字体 ----------
+     这里不做任何外网请求：单机应用不该依赖网络，断网时也不该白屏。
+     外壳已从 JavaFX WebView 换成 Electron（Chromium），所以下面这份字体栈现在
+     是 Chromium 在解析 —— 之前为了让 WebKit 兜底选的那些字体同样是加分项，不用改。
+     排序原则：先设计指定的思源系列 → 再退到各平台自带的、观感最接近的那一档。
+
+     宋体这一档 Windows 上没有思源宋体，退到「华文中宋」而不是 SimSun：
+     SimSun 在大字号标题上笔画发虚、横细竖粗过头，华文中宋是同一族里更克制的选择。
+     等宽这一档 Windows 用 Consolas（微软自带、字形干净），比落到 Courier New 好得多。
+  */
+  --font-serif: "Source Han Serif CN", "Source Han Serif SC", "思源宋体",
+                "Noto Serif SC", "Songti SC", "STZhongsong", "华文中宋",
+                "STSong", "SimSun", serif;
+  --font-sans:  "Source Han Sans CN", "Source Han Sans SC", "思源黑体",
+                "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "微软雅黑",
+                "Segoe UI", system-ui, sans-serif;
+  --font-mono:  "Sarasa Mono SC", "Sarasa Gothic SC", "Noto Sans Mono",
+                "Cascadia Mono", "Consolas", "JetBrains Mono",
+                "DejaVu Sans Mono", monospace;
 
   /* ---------- 动效 ---------- */
   --ease: cubic-bezier(0.2, 0.6, 0.3, 1);

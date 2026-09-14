@@ -8,105 +8,203 @@
     <parent>
         <groupId>com.theos</groupId>
         <artifactId>detective-helper</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>1.0.0</version>
     </parent>
 
     <artifactId>backend</artifactId>
     <packaging>jar</packaging>
 
     <name>Detective Helper - Backend</name>
-    <description>后端服务模块 - Spring Boot REST API</description>
+    <description>后端服务模块 - Spring Boot REST API + MyBatis + SQLite</description>
 
     <dependencies>
-        <!-- Spring Boot核心依赖 -->
+        <!-- Spring Boot Web（同时是 desktop 的传递依赖，不要在 desktop 里重复声明） -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
         </dependency>
 
-        <!-- Spring Boot JDBC -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-jdbc</artifactId>
-        </dependency>
-
-        <!-- Spring Boot Validation -->
+        <!-- Validation：DTO 上的 @NotBlank / @NotNull -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
 
-        <!-- SQLite JDBC驱动 -->
+        <!--
+          spring-boot-starter-jdbc 提供 HikariCP 数据源与 JdbcTemplate。
+          JdbcTemplate 现在只用于 SqliteConfig 里的老库补列迁移（PRAGMA 查询），
+          业务读写已全部走 MyBatis。
+        -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-jdbc</artifactId>
+        </dependency>
+
+        <!-- MyBatis -->
+        <dependency>
+            <groupId>org.mybatis.spring.boot</groupId>
+            <artifactId>mybatis-spring-boot-starter</artifactId>
+        </dependency>
+
+        <!-- SQLite JDBC 驱动（版本由根 pom 的 dependencyManagement 之外的属性控制） -->
         <dependency>
             <groupId>org.xerial</groupId>
             <artifactId>sqlite-jdbc</artifactId>
+            <version>${sqlite.version}</version>
         </dependency>
 
-        <!-- Spring Boot Test -->
+        <!-- JGraphT：关系图最短路 / 族谱排布 -->
+        <dependency>
+            <groupId>org.jgrapht</groupId>
+            <artifactId>jgrapht-core</artifactId>
+            <version>${jgrapht.version}</version>
+        </dependency>
+
+        <!-- 配置元数据（@ConfigurationProperties 的 IDE 补全），编译期处理器 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-test</artifactId>
-            <scope>test</scope>
+            <artifactId>spring-boot-configuration-processor</artifactId>
+            <optional>true</optional>
         </dependency>
 
-        <!-- Jackson JSON处理 -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
-
-        <!-- Lombok (可选，用于简化代码) -->
+        <!-- Lombok：只参与编译，不进入运行时 -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
             <optional>true</optional>
         </dependency>
 
-        <!-- SLF4J日志 -->
         <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-        </dependency>
-
-        <!-- JGraphT图处理库 -->
-        <dependency>
-            <groupId>org.jgrapht</groupId>
-            <artifactId>jgrapht-core</artifactId>
-            <version>1.5.2</version>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
     <build>
         <plugins>
+            <!--
+              关键：backend 必须产出【普通 jar】，不能是 Spring Boot fat jar。
+              desktop 依赖 backend 时，如果吃到的是 fat jar，里面的类会被塞进 BOOT-INF/classes，
+              在 desktop 的 fat jar 里就变成「嵌套 jar 再嵌套 jar」，Spring Boot 的类加载器读不到。
+              做法就是把 repackage 的执行绑到不存在的 phase 上，等于关掉它。
+            -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
-                <configuration>
-                    <mainClass>com.theos.detectivehelper.DetectiveHelperApplication</mainClass>
-                </configuration>
+                <executions>
+                    <execution>
+                        <id>repackage</id>
+                        <phase>none</phase>
+                    </execution>
+                </executions>
             </plugin>
+
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.springframework.boot</groupId>
+                            <artifactId>spring-boot-configuration-processor</artifactId>
+                            <version>${spring.boot.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+
+            <!--
+              把运行时依赖平铺复制到 target/lib。
+
+              为什么不再依赖 fat jar：Electron 外壳不需要 JavaFX，也就不需要 Spring Boot
+              的嵌套 jar 布局。嵌套 jar 的每个类和资源都要经过 BootLoader 的偏移量解压，
+              冷启动光是加载类就明显慢于展开目录（实测「Spring 开始之前」那一段约 7 秒，
+              其中很大一部分是它）。展开成 target/lib + target/classes 之后直接用
+              `java -cp` 启动，绕开 BootLoader，顺便把打包产物也变简单。
+
+              用 prepare-package：要排在 classes 与 resources 都就绪之后。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
                 <executions>
                     <execution>
-                        <id>default-compile</id>
-                        <phase>compile</phase>
+                        <id>copy-runtime-deps</id>
+                        <phase>prepare-package</phase>
                         <goals>
-                            <goal>compile</goal>
+                            <goal>copy-dependencies</goal>
                         </goals>
                         <configuration>
-                            <annotationProcessorPaths>
-                                <path>
-                                    <groupId>org.projectlombok</groupId>
-                                    <artifactId>lombok</artifactId>
-                                    <version>${lombok.version}</version>
-                                </path>
-                                <path>
-                                    <groupId>org.springframework.boot</groupId>
-                                    <artifactId>spring-boot-configuration-processor</artifactId>
-                                </path>
-                            </annotationProcessorPaths>
+                            <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                            <!-- runtime：跳过 test 与 provided，lombok 也就不会进来 -->
+                            <includeScope>runtime</includeScope>
+                            <overWriteReleases>false</overWriteReleases>
+                            <overWriteSnapshots>true</overWriteSnapshots>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+              先把 target/classes/static 清空，再把前端产物并进去。
+
+              为什么必须清：Vite 产出的文件名带内容哈希，改了内容就是新文件名。
+              copy-resources 只覆盖不删除，于是旧哈希文件会一轮轮攒下来 ——
+              实测一次构建后 static/ 里同时躺着新旧的 ant-design-*.js（439 KB 与 1405 KB），
+              两个都被打进发布包。空目录删不掉也无所谓，目标就是别留旧文件。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-clean-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>wipe-stale-static</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>clean</goal>
+                        </goals>
+                        <configuration>
+                            <excludeDefaultDirectories>true</excludeDefaultDirectories>
+                            <filesets>
+                                <fileset>
+                                    <directory>${project.build.outputDirectory}/static</directory>
+                                    <followSymlinks>false</followSymlinks>
+                                </fileset>
+                            </filesets>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!--
+              把前端产物并进后端 classpath:/static/。
+              必须指定 targetPath=static，否则文件会落到 classes 根目录，页面白屏。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-resources-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>copy-frontend-dist</id>
+                        <phase>prepare-package</phase>
+                        <goals>
+                            <goal>copy-resources</goal>
+                        </goals>
+                        <configuration>
+                            <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+                            <overwrite>true</overwrite>
+                            <resources>
+                                <resource>
+                                    <directory>${project.basedir}/../frontend/dist</directory>
+                                    <filtering>false</filtering>
+                                </resource>
+                            </resources>
                         </configuration>
                     </execution>
                 </executions>

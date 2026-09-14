@@ -157,3 +157,125 @@ h1, h2, h3, h4 {
   background: var(--green-tint) !important;
   color: var(--green-ink);
 }
+
+/* ---------- 下拉弹层 / 日期面板：统一到「克制」的观感 ---------- */
+.ant-select-dropdown,
+.ant-picker-dropdown .ant-picker-panel-container {
+  border: 1px solid var(--line-1);
+  border-radius: var(--r-xl);
+  box-shadow: var(--sh-panel);
+  padding: 4px;
+}
+
+.ant-select-item {
+  border-radius: var(--r-sm);
+  font-size: 12.5px;
+}
+
+.ant-picker-panel {
+  border-top-color: var(--line-1);
+}
+
+.ant-picker-header {
+  border-bottom-color: var(--line-1);
+  color: var(--ink-2);
+}
+
+.ant-picker-cell-in-view.ant-picker-cell-selected .ant-picker-cell-inner {
+  background: var(--green);
+}
+
+.ant-picker-today-btn {
+  color: var(--green-deep);
+}
+
+.ant-picker-time-panel-column > li.ant-picker-time-panel-cell-selected .ant-picker-time-panel-cell-inner {
+  background: var(--green-tint);
+  color: var(--green-ink);
+}
+
+/* ---------- 表单内嵌的紧凑控件 ----------
+   这些位置原来是原生 <select> / <input type="datetime-local">，现在统一用 antd。
+
+   换掉的起因是 JavaFX WebView 不支持 datetime-local（不弹选择器）；但外壳已经换成
+   Electron/Chromium 之后这些**依然保留 antd**，理由是风格而不是能力：
+   原生 select 是系统控件，压根不跟随这套低饱和绿灰；Chromium 的原生日期面板
+   同样是另一套视觉语言，混进来一样突兀。
+   尺寸收紧到和旁边 28px 高的输入框对齐。 */
+
+.mini-select.ant-select {
+  min-width: 96px;
+  flex: none;
+}
+
+.mini-select.ant-select .ant-select-selector {
+  height: 28px !important;
+  padding: 0 9px !important;
+  border-radius: var(--r-md) !important;
+  border-color: var(--line-1) !important;
+}
+
+.mini-select.ant-select .ant-select-selection-item,
+.mini-select.ant-select .ant-select-selection-placeholder {
+  line-height: 26px !important;
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.mini-select.ant-select .ant-select-arrow {
+  color: var(--ink-4);
+  font-size: 10px;
+}
+
+.mini-select-s.ant-select {
+  min-width: 74px;
+}
+
+.f-type.ant-select,
+.f-period.ant-select {
+  min-width: 84px;
+  flex: none;
+}
+
+.f-type.ant-select .ant-select-selector,
+.f-period.ant-select .ant-select-selector {
+  height: 28px !important;
+  padding: 0 9px !important;
+  border-radius: var(--r-md) !important;
+  border-color: var(--line-1) !important;
+}
+
+.f-type.ant-select .ant-select-selection-item,
+.f-period.ant-select .ant-select-selection-placeholder {
+  line-height: 26px !important;
+  font-size: 12px;
+}
+
+/* 时间线的日期 / 时刻选择器。
+   宽度分配由组件内的 scoped 规则负责，这里只管外观。 */
+.f-time.ant-picker {
+  height: 28px;
+  padding: 0 9px;
+  border-radius: var(--r-md);
+  border-color: var(--line-1);
+  font-size: 12px;
+}
+
+.f-time.ant-picker:hover {
+  border-color: var(--green-line);
+}
+
+.f-time.ant-picker-focused {
+  border-color: var(--green);
+  box-shadow: 0 0 0 2px var(--green-soft);
+}
+
+.f-time.ant-picker .ant-picker-input > input {
+  font-size: 12px;
+  color: var(--ink-2);
+}
+
+.f-time.ant-picker .ant-picker-suffix {
+  color: var(--ink-4);
+}
+

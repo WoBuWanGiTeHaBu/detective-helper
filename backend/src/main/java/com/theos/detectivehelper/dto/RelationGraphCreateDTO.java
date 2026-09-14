@@ -1,5 +1,7 @@
 package com.theos.detectivehelper.dto;
 
+import lombok.Data;
+
 import jakarta.validation.constraints.NotBlank;
 
 /**
@@ -7,17 +9,10 @@ import jakarta.validation.constraints.NotBlank;
  * <p>
  * bookId 由路径参数 /api/books/{bookId}/relation-graphs 提供。
  */
+@Data
 public class RelationGraphCreateDTO {
 
     @NotBlank(message = "关系图名称不能为空")
     private String name;
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
 
 }

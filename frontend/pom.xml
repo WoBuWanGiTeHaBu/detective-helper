@@ -8,18 +8,18 @@
     <parent>
         <groupId>com.theos</groupId>
         <artifactId>detective-helper</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>1.0.0</version>
     </parent>
 
     <artifactId>frontend</artifactId>
     <packaging>pom</packaging>
 
     <name>Detective Helper - Frontend</name>
-    <description>前端应用模块 - Vue.js + TypeScript + Vite</description>
+    <description>前端应用模块 - Vue 3 + TypeScript + Vite</description>
 
     <properties>
-        <node.version>20.10.0</node.version>
-        <npm.version>10.2.4</npm.version>
+        <!-- 前端构建相当耗时，发布/冒烟时可用 -DskipFrontend=true 跳过 -->
+        <skipFrontend>false</skipFrontend>
     </properties>
 
     <build>
@@ -29,71 +29,58 @@
                 <artifactId>exec-maven-plugin</artifactId>
                 <version>3.1.0</version>
                 <executions>
-                    <!-- 安装依赖 -->
+                    <!-- 安装依赖：node_modules 已存在时 npm 自身会很快返回 -->
                     <execution>
-                        <id>npm install</id>
+                        <id>npm-install</id>
                         <phase>validate</phase>
                         <goals>
                             <goal>exec</goal>
                         </goals>
                         <configuration>
-                            <executable>npm</executable>
+                            <skip>${skipFrontend}</skip>
+                            <executable>${npm.executable}</executable>
+                            <workingDirectory>${project.basedir}</workingDirectory>
                             <arguments>
                                 <argument>install</argument>
+                                <argument>--no-audit</argument>
+                                <argument>--no-fund</argument>
                             </arguments>
-                            <workingDirectory>${project.basedir}</workingDirectory>
                         </configuration>
                     </execution>
 
-                    <!-- 类型检查 -->
+                    <!--
+                      产出 frontend/dist。
+                      package.json 的 build 脚本本身就是 "vue-tsc && vite build"，
+                      类型检查已经含在里面，所以不再单独跑一次 type-check（原来跑了两次）。
+                    -->
                     <execution>
-                        <id>npm type-check</id>
-                        <phase>test</phase>
-                        <goals>
-                            <goal>exec</goal>
-                        </goals>
-                        <configuration>
-                            <executable>npm</executable>
-                            <arguments>
-                                <argument>run</argument>
-                                <argument>type-check</argument>
-                            </arguments>
-                            <workingDirectory>${project.basedir}</workingDirectory>
-                        </configuration>
-                    </execution>
-
-                    <!-- 构建前端 -->
-                    <execution>
-                        <id>npm build</id>
+                        <id>npm-build</id>
                         <phase>prepare-package</phase>
                         <goals>
                             <goal>exec</goal>
                         </goals>
                         <configuration>
-                            <executable>npm</executable>
+                            <skip>${skipFrontend}</skip>
+                            <executable>${npm.executable}</executable>
+                            <workingDirectory>${project.basedir}</workingDirectory>
                             <arguments>
                                 <argument>run</argument>
                                 <argument>build</argument>
                             </arguments>
-                            <workingDirectory>${project.basedir}</workingDirectory>
                         </configuration>
                     </execution>
                 </executions>
             </plugin>
 
-            <!-- 清理插件 -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-clean-plugin</artifactId>
                 <version>3.3.1</version>
                 <configuration>
                     <filesets>
+                        <!-- 只清构建产物；node_modules 重装一次要好几分钟，不能跟着 clean 一起删 -->
                         <fileset>
                             <directory>dist</directory>
-                            <followSymlinks>false</followSymlinks>
-                        </fileset>
-                        <fileset>
-                            <directory>node_modules</directory>
                             <followSymlinks>false</followSymlinks>
                         </fileset>
                     </filesets>

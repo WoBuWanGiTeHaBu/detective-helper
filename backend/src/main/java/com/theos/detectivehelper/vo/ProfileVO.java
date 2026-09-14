@@ -1,8 +1,11 @@
 package com.theos.detectivehelper.vo;
 
+import lombok.Data;
+
 /**
  * 用户资料VO
  */
+@Data
 public class ProfileVO {
 
     private String displayName;
@@ -13,22 +16,6 @@ public class ProfileVO {
 
     public ProfileVO(String displayName, String theme) {
         this.displayName = displayName;
-        this.theme = theme;
-    }
-
-    public String getDisplayName() {
-        return displayName;
-    }
-
-    public void setDisplayName(String displayName) {
-        this.displayName = displayName;
-    }
-
-    public String getTheme() {
-        return theme;
-    }
-
-    public void setTheme(String theme) {
         this.theme = theme;
     }
 

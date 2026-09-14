@@ -1,82 +1,67 @@
 package com.theos.detectivehelper.repository;
 
 import com.theos.detectivehelper.domain.Event;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
-import org.springframework.stereotype.Repository;
+import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * 事件仓库
+ * 事件仓储（MyBatis）。对外签名与原 JdbcTemplate 版本保持一致。
  */
-@Repository
-public class EventRepository {
+@Mapper
+public interface EventRepository {
 
-    private final JdbcTemplate jdbcTemplate;
+    @Insert("""
+            INSERT INTO event (book_id, name, sort_order, created_at, updated_at)
+            VALUES (#{bookId}, #{name}, #{sortOrder}, #{createdAt}, #{updatedAt})
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertRow(Event event);
 
-    public EventRepository(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
+    @Update("UPDATE event SET name = #{name}, sort_order = #{sortOrder}, updated_at = #{updatedAt} WHERE id = #{id}")
+    int updateRow(Event event);
 
-    private final RowMapper<Event> eventRowMapper = new RowMapper<Event>() {
-        @Override
-        public Event mapRow(ResultSet rs, int rowNum) throws SQLException {
-            Event event = new Event();
-            event.setId(rs.getLong("id"));
-            event.setBookId(rs.getLong("book_id"));
-            event.setName(rs.getString("name"));
-            event.setSortOrder(rs.getInt("sort_order"));
-            event.setCreatedAt(rs.getString("created_at"));
-            event.setUpdatedAt(rs.getString("updated_at"));
-            return event;
-        }
-    };
+    @Select("SELECT * FROM event WHERE id = #{id}")
+    Event selectRowById(@Param("id") Long id);
 
-    public Event save(Event event) {
+    @Update("UPDATE event SET sort_order = #{sortOrder}, updated_at = #{updatedAt} WHERE id = #{id}")
+    int updateSortOrderRow(@Param("id") Long id, @Param("sortOrder") int sortOrder, @Param("updatedAt") String updatedAt);
+
+    default Event save(Event event) {
         if (event.getId() == null) {
-            String sql = "INSERT INTO event (book_id, name, sort_order, created_at, updated_at) VALUES (?, ?, ?, ?, ?)";
-            jdbcTemplate.update(sql, event.getBookId(), event.getName(), event.getSortOrder(), event.getCreatedAt(), event.getUpdatedAt());
-            event.setId(jdbcTemplate.queryForObject("SELECT last_insert_rowid()", Long.class));
+            insertRow(event);
         } else {
-            String sql = "UPDATE event SET name = ?, sort_order = ?, updated_at = ? WHERE id = ?";
-            event.setUpdatedAt(java.time.Instant.now().toString());
-            jdbcTemplate.update(sql, event.getName(), event.getSortOrder(), event.getUpdatedAt(), event.getId());
+            event.setUpdatedAt(Instant.now().toString());
+            updateRow(event);
         }
         return event;
     }
 
-    public Optional<Event> findById(Long id) {
-        String sql = "SELECT * FROM event WHERE id = ?";
-        return jdbcTemplate.query(sql, eventRowMapper, id).stream().findFirst();
+    default Optional<Event> findById(Long id) {
+        return Optional.ofNullable(selectRowById(id));
     }
 
-    public List<Event> findByBookId(Long bookId) {
-        String sql = "SELECT * FROM event WHERE book_id = ? ORDER BY sort_order ASC, created_at DESC";
-        return jdbcTemplate.query(sql, eventRowMapper, bookId);
+    @Select("SELECT * FROM event WHERE book_id = #{bookId} ORDER BY sort_order ASC, created_at DESC")
+    List<Event> findByBookId(@Param("bookId") Long bookId);
+
+    @Delete("DELETE FROM event WHERE id = #{id}")
+    void deleteById(@Param("id") Long id);
+
+    @Delete("DELETE FROM event WHERE book_id = #{bookId}")
+    void deleteByBookId(@Param("bookId") Long bookId);
+
+    default void updateSortOrder(Long id, int sortOrder) {
+        updateSortOrderRow(id, sortOrder, Instant.now().toString());
     }
 
-    public void deleteById(Long id) {
-        String sql = "DELETE FROM event WHERE id = ?";
-        jdbcTemplate.update(sql, id);
-    }
-
-    public void deleteByBookId(Long bookId) {
-        String sql = "DELETE FROM event WHERE book_id = ?";
-        jdbcTemplate.update(sql, bookId);
-    }
-
-    public void updateSortOrder(Long id, int sortOrder) {
-        String sql = "UPDATE event SET sort_order = ?, updated_at = ? WHERE id = ?";
-        jdbcTemplate.update(sql, sortOrder, java.time.Instant.now().toString(), id);
-    }
-
-    public int countPagesByEventId(Long eventId) {
-        String sql = "SELECT COUNT(*) FROM page WHERE event_id = ?";
-        return jdbcTemplate.queryForObject(sql, Integer.class, eventId);
-    }
-
+    @Select("SELECT COUNT(*) FROM page WHERE event_id = #{eventId}")
+    int countPagesByEventId(@Param("eventId") Long eventId);
 }

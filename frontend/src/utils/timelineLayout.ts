@@ -75,6 +75,16 @@ export interface LaidOutPoint {
   tickRow: number
   /** 同刻刻度已被前一个点画过 → 这个点不再重复画 */
   tickHidden: boolean
+  /**
+   * 时间段的**终点**刻度文案；非时间段为空串。
+   * 只标起点的话，「从 3/14 20:00 到什么时候」是读不出来的 —— 轴上明明有
+   * 一个有长度的区间，却只有一个时刻能看。
+   */
+  endTick: string
+  /** 终点刻度的分道号 */
+  endTickRow: number
+  /** 终点刻度与别的刻度重合 → 不画 */
+  endTickHidden: boolean
   /** 是否处于被压缩的跨度之后 */
   compressed: boolean
   /** 压缩段标注文案 */
@@ -399,30 +409,60 @@ export function layoutTimeline(
   /* ---- 5a. 卡片分道 ---- */
   const labelLanes = allocateLanes(startPx, cardExtent, cardGap, maxLanes, cardShift)
 
-  /* ---- 5b. 刻度分道 + 同刻去重 ---- */
+  /* ---- 5b. 刻度分道 + 同刻去重（起点与时间段终点一起参与） ---- */
   const tickTexts = normalized.map((x) => formatTick(x.ts, x.point))
-  const tickHidden: boolean[] = []
-  const visibleTickPx: number[] = []
-  const tickLaneIdx: number[] = []
-  let prevTick = ''
-  let prevTickPx = Number.NEGATIVE_INFINITY
-  tickTexts.forEach((t, i) => {
-    const px = startPx[i]
-    // 同刻的点会被抬开一点间距，所以判定用「一个刻度宽」而不是 1px：
-    // 只要文字一样、又挨得近，就只画一次，免得堆出三行一模一样的 "3/14 20:00"
-    const dup = t === prevTick && px - prevTickPx < tickExtent + tickGap
-    tickHidden[i] = dup
-    if (!dup) {
-      prevTick = t
-      prevTickPx = px
-      tickLaneIdx[i] = visibleTickPx.length
-      visibleTickPx.push(px)
-    } else {
-      tickLaneIdx[i] = -1
+  // 时间段的终点也要标时刻，所以终点刻度和起点刻度是平权的两类刻度，
+  // 一起去重、一起分道 —— 否则「前一个时间段的终点」和「后一个点的起点」
+  // 会各自以为自己是唯一的，叠在同一行上。
+  const endTickTexts = normalized.map((x, i) =>
+    endBp[i] ? formatTick(x.end, x.point) : ''
+  )
+
+  interface TickEntry {
+    pi: number
+    isEnd: boolean
+    text: string
+    px: number
+  }
+  const tickEntries: TickEntry[] = []
+  normalized.forEach((_, i) => {
+    tickEntries.push({ pi: i, isEnd: false, text: tickTexts[i], px: startPx[i] })
+    if (endBp[i]) {
+      tickEntries.push({ pi: i, isEnd: true, text: endTickTexts[i], px: bx(endBp[i] as BP) })
     }
   })
+  // 按位置升序；同一位置起点在前，和断点序列的阅读顺序保持一致。
+  // （allocateLanes 要求入参升序，这里的排序同时满足它）
+  tickEntries.sort((a, b) => a.px - b.px || (a.isEnd === b.isEnd ? 0 : a.isEnd ? 1 : -1))
+
+  const n = normalized.length
+  const startHidden = new Array<boolean>(n).fill(false)
+  const endHidden = new Array<boolean>(n).fill(false)
+  const startSlot = new Array<number>(n).fill(-1)
+  const endSlot = new Array<number>(n).fill(-1)
+  const visibleTickPx: number[] = []
+
+  let prevTick = ''
+  let prevTickPx = Number.NEGATIVE_INFINITY
+  for (const entry of tickEntries) {
+    // 同刻的点会被抬开一点间距，所以判定用「一个刻度宽」而不是 1px：
+    // 只要文字一样、又挨得近，就只画一次，免得堆出两行一模一样的 "3/14 20:00"
+    const dup = entry.text === prevTick && entry.px - prevTickPx < tickExtent + tickGap
+    if (entry.isEnd) endHidden[entry.pi] = dup
+    else startHidden[entry.pi] = dup
+
+    if (!dup) {
+      prevTick = entry.text
+      prevTickPx = entry.px
+      const slot = visibleTickPx.length
+      visibleTickPx.push(entry.px)
+      if (entry.isEnd) endSlot[entry.pi] = slot
+      else startSlot[entry.pi] = slot
+    }
+  }
+
   const tickLanes = allocateLanes(visibleTickPx, tickExtent, tickGap, maxLanes, tickShift)
-  const tickRowOf = tickLaneIdx.map((vi) => (vi < 0 ? 0 : tickLanes.lanes[vi] ?? 0))
+  const rowOfSlot = (slot: number): number => (slot < 0 ? 0 : tickLanes.lanes[slot] ?? 0)
 
   const hasCompression = gaps.some((g) => med > 0 && g > med * COMPRESS_RATIO)
 
@@ -456,8 +496,11 @@ export function layoutTimeline(
       certainty: certaintyOf(x.point),
       tick: tickTexts[i],
       labelRow: labelLanes.lanes[i] ?? 0,
-      tickRow: tickRowOf[i] ?? 0,
-      tickHidden: tickHidden[i],
+      tickRow: rowOfSlot(startSlot[i]),
+      tickHidden: startHidden[i],
+      endTick: endTickTexts[i],
+      endTickRow: rowOfSlot(endSlot[i]),
+      endTickHidden: endBp[i] ? endHidden[i] : true,
       compressed: isFuzzy || compressed,
       compressNote
     }

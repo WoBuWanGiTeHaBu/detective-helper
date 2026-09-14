@@ -1218,6 +1218,11 @@ async function onCoverFileChange(e: Event) {
   background: transparent;
   cursor: pointer;
   text-align: left;
+  /* <button> 在 WebKit（JavaFX WebView 用的就是它）下不会按网格的可拉伸规则
+     被撑开，宽度会退化成内容宽度，只剩几十像素。必须显式给满宽。 */
+  width: 100%;
+  justify-self: stretch;
+  min-width: 0;
 }
 
 .create-ghost {
@@ -1230,14 +1235,12 @@ async function onCoverFileChange(e: Event) {
   border-radius: var(--r-xl);
   background: #F0EDEA;
   border: 1px solid var(--line-1);
-  filter: blur(0.5px);
-  transition: background 180ms var(--ease), border-color 180ms var(--ease), filter 180ms var(--ease);
+  transition: background 180ms var(--ease), border-color 180ms var(--ease);
 }
 
 .create-slot:hover .create-ghost {
   background: #ECE8E4;
   border-color: var(--green-line);
-  filter: blur(0);
 }
 
 .create-ghost svg {
@@ -1304,12 +1307,10 @@ async function onCoverFileChange(e: Event) {
   font-size: 12.5px;
   font-weight: 500;
   cursor: pointer;
-  filter: blur(0.5px);
-  transition: filter 180ms var(--ease), border-color 180ms var(--ease);
+  transition: border-color 180ms var(--ease);
 }
 
 .empty-ghost:hover {
-  filter: blur(0);
   border-color: var(--green-line);
 }
 

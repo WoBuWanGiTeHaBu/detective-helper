@@ -1,8 +1,11 @@
 package com.theos.detectivehelper.vo;
 
+import lombok.Data;
+
 /**
  * 事件VO
  */
+@Data
 public class EventVO {
 
     private Long id;
@@ -23,63 +26,6 @@ public class EventVO {
         this.sortOrder = sortOrder;
         this.pageCount = pageCount;
         this.createdAt = createdAt;
-        this.updatedAt = updatedAt;
-    }
-
-    // Getters and Setters
-    public Long getId() {
-        return id;
-    }
-
-    public void setId(Long id) {
-        this.id = id;
-    }
-
-    public Long getBookId() {
-        return bookId;
-    }
-
-    public void setBookId(Long bookId) {
-        this.bookId = bookId;
-    }
-
-    public String getName() {
-        return name;
-    }
-
-    public void setName(String name) {
-        this.name = name;
-    }
-
-    public Integer getSortOrder() {
-        return sortOrder;
-    }
-
-    public void setSortOrder(Integer sortOrder) {
-        this.sortOrder = sortOrder;
-    }
-
-    public Integer getPageCount() {
-        return pageCount;
-    }
-
-    public void setPageCount(Integer pageCount) {
-        this.pageCount = pageCount;
-    }
-
-    public String getCreatedAt() {
-        return createdAt;
-    }
-
-    public void setCreatedAt(String createdAt) {
-        this.createdAt = createdAt;
-    }
-
-    public String getUpdatedAt() {
-        return updatedAt;
-    }
-
-    public void setUpdatedAt(String updatedAt) {
         this.updatedAt = updatedAt;
     }
 

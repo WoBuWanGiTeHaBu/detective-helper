@@ -14,36 +14,59 @@
 
     <groupId>com.theos</groupId>
     <artifactId>detective-helper</artifactId>
-    <version>1.0.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <packaging>pom</packaging>
 
     <name>Detective Helper</name>
-    <description>侦探笔记助手 - 多模块Maven项目</description>
+    <description>推演录 · 单机桌面应用（JavaFX 外壳 + 内嵌 Spring Boot + Vue 前端）</description>
 
+    <!--
+      模块顺序即 Maven 反应堆顺序，不能随意调换：
+        frontend 先产出 dist → backend 把 dist 收进 classpath:static → desktop 打成 fat jar。
+      backend 对 frontend 没有 Maven 依赖（frontend 是 pom 打包），所以顺序只能靠这里保证。
+    -->
     <modules>
+        <module>frontend</module>
         <module>backend</module>
         <module>desktop</module>
-        <module>frontend</module>
     </modules>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
         <java.version>21</java.version>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
         <spring.boot.version>3.3.4</spring.boot.version>
-        <sqlite.version>3.45.1.0</sqlite.version>
         <javafx.version>21.0.3</javafx.version>
-        <lombok.version>1.18.30</lombok.version>
+        <lombok.version>1.18.34</lombok.version>
+        <mybatis.boot.version>3.0.3</mybatis.boot.version>
+        <sqlite.version>3.45.1.0</sqlite.version>
+        <jgrapht.version>1.5.2</jgrapht.version>
+
+        <!--
+          Windows 上 Java 的 ProcessBuilder 不会按 PATHEXT 补 .cmd 后缀，
+          exec-maven-plugin 直接写 "npm" 会找不到可执行文件。下面的 profile 会覆盖成 npm.cmd。
+        -->
+        <npm.executable>npm</npm.executable>
     </properties>
 
     <dependencyManagement>
         <dependencies>
-            <!-- 模块间依赖管理 -->
             <dependency>
                 <groupId>com.theos</groupId>
                 <artifactId>backend</artifactId>
                 <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.mybatis.spring.boot</groupId>
+                <artifactId>mybatis-spring-boot-starter</artifactId>
+                <version>${mybatis.boot.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+                <optional>true</optional>
             </dependency>
         </dependencies>
     </dependencyManagement>
@@ -58,6 +81,7 @@
                     <configuration>
                         <source>${java.version}</source>
                         <target>${java.version}</target>
+                        <encoding>UTF-8</encoding>
                     </configuration>
                 </plugin>
                 <plugin>
@@ -68,5 +92,19 @@
             </plugins>
         </pluginManagement>
     </build>
+
+    <profiles>
+        <profile>
+            <id>windows</id>
+            <activation>
+                <os>
+                    <family>windows</family>
+                </os>
+            </activation>
+            <properties>
+                <npm.executable>npm.cmd</npm.executable>
+            </properties>
+        </profile>
+    </profiles>
 
 </project>

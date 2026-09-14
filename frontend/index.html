@@ -7,13 +7,21 @@
     <meta name="theme-color" content="#F4F2EE" />
     <title>推演录 · 推理笔记</title>
 
-    <!-- 设计令牌指定的字体：思源宋体（标题）/ Noto Sans SC（正文）/ 等宽（时间线刻度） -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&family=Noto+Serif+SC:wght@700&family=Noto+Sans+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
+    <!--
+      字体：一律走本地，不做任何外网请求。
+
+      原来是直接 <link> 到 fonts.googleapis.com。这是一台单机应用：不该依赖网络，
+      而 <head> 里的外链样式表在任何引擎下都会阻塞首屏 —— 断网时要等 DNS/连接超时才出内容，
+      对单机应用不能接受。（外壳已从 JavaFX WebView 换成 Electron/Chromium，但这与引擎无关，
+      换成 Chromium 也一样会阻塞。）
+
+      现在字体栈定义在 src/styles/tokens.css，优先用系统已装的思源系列，
+      没有就退到各平台自带里观感最接近的那一档（Windows：华文中宋 / 微软雅黑 / Consolas）。
+
+      想要设计稿里一模一样的 Noto 字体：跑 scripts\fetch-fonts.ps1 把字体镜像到
+      public/fonts/（它会生成 fonts/fonts.css），再把下面这行的注释解开。
+    -->
+    <!-- <link rel="stylesheet" href="/fonts/fonts.css" /> -->
   </head>
   <body>
     <div id="app"></div>

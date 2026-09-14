@@ -1,5 +1,7 @@
 package com.theos.detectivehelper.vo;
 
+import lombok.Data;
+
 /**
  * 画布VO
  *
@@ -7,6 +9,7 @@ package com.theos.detectivehelper.vo;
  *             （GET / PUT 同构）。本类仅为兼容旧代码保留，新的读写不要再使用。
  */
 @Deprecated
+@Data
 public class CanvasVO {
 
     private Long pageId;
@@ -17,22 +20,6 @@ public class CanvasVO {
 
     public CanvasVO(Long pageId, String canvasData) {
         this.pageId = pageId;
-        this.canvasData = canvasData;
-    }
-
-    public Long getPageId() {
-        return pageId;
-    }
-
-    public void setPageId(Long pageId) {
-        this.pageId = pageId;
-    }
-
-    public String getCanvasData() {
-        return canvasData;
-    }
-
-    public void setCanvasData(String canvasData) {
         this.canvasData = canvasData;
     }
 

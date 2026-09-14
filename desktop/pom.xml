@@ -8,89 +8,80 @@
     <parent>
         <groupId>com.theos</groupId>
         <artifactId>detective-helper</artifactId>
-        <version>1.0.0-SNAPSHOT</version>
+        <version>1.0.0</version>
     </parent>
 
     <artifactId>desktop</artifactId>
     <packaging>jar</packaging>
 
     <name>Detective Helper - Desktop</name>
-    <description>桌面应用模块 - JavaFX</description>
+    <description>桌面外壳模块 - JavaFX 窗口 + WebView + 内嵌后端</description>
 
     <properties>
-        <javafx.version>21.0.3</javafx.version>
         <javafx.maven.plugin.version>0.0.8</javafx.maven.plugin.version>
     </properties>
 
     <dependencies>
-        <!-- JavaFX核心依赖 -->
+        <!--
+          内嵌后端。这是外层的唯一一份业务依赖：
+          starter-web / mybatis / sqlite / jgrapht 都由它传递进来，这里不再重复声明。
+        -->
+        <dependency>
+            <groupId>com.theos</groupId>
+            <artifactId>backend</artifactId>
+        </dependency>
+
+        <!-- JavaFX：-win 分类器 jar 由 openjfx 的 pom 按当前平台自动带上，原生库在里面 -->
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>
             <version>${javafx.version}</version>
         </dependency>
-
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-fxml</artifactId>
             <version>${javafx.version}</version>
         </dependency>
-
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-web</artifactId>
             <version>${javafx.version}</version>
         </dependency>
-
-        <!-- Spring Boot Web -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-
-        <!-- JSON处理 -->
-        <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
-            <artifactId>jackson-databind</artifactId>
-        </dependency>
-
-        <!-- HTTP客户端 -->
-        <dependency>
-            <groupId>org.apache.httpcomponents.client5</groupId>
-            <artifactId>httpclient5</artifactId>
-        </dependency>
-
-        <!-- 日志 -->
-        <dependency>
-            <groupId>org.slf4j</groupId>
-            <artifactId>slf4j-api</artifactId>
-        </dependency>
     </dependencies>
 
     <build>
+        <finalName>DetectiveHelper-desktop</finalName>
         <plugins>
+            <!--
+              fat jar。Start-Class 是 DesktopApplication（JavaFX Application 子类），
+              但 jpackage 的 main-class 参数必须传 JarLauncher 而不是它：
+              JDK 启动器一看到「主类是 Application 子类 + JavaFX 在 classpath 上」就直接拒绝启动，
+              报 "JavaFX runtime components are missing"。由 JarLauncher 反射调用 main 可以绕过这个检查。
+            -->
             <plugin>
-                <groupId>org.apache.maven.plugins</groupId>
-                <artifactId>maven-compiler-plugin</artifactId>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
-                    <source>21</source>
-                    <target>21</target>
+                    <mainClass>com.theos.detectivehelper.desktop.DesktopApplication</mainClass>
+                    <layers>
+                        <enabled>false</enabled>
+                    </layers>
                 </configuration>
+                <executions>
+                    <execution>
+                        <id>repackage</id>
+                        <goals>
+                            <goal>repackage</goal>
+                        </goals>
+                    </execution>
+                </executions>
             </plugin>
 
+            <!-- 开发期直接跑：mvn -pl desktop javafx:run -->
             <plugin>
                 <groupId>org.openjfx</groupId>
                 <artifactId>javafx-maven-plugin</artifactId>
                 <version>${javafx.maven.plugin.version}</version>
-                <configuration>
-                    <mainClass>com.theos.detectivehelper.desktop.DesktopApplication</mainClass>
-                </configuration>
-            </plugin>
-
-            <!-- Spring Boot打包插件 -->
-            <plugin>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <mainClass>com.theos.detectivehelper.desktop.DesktopApplication</mainClass>
                 </configuration>

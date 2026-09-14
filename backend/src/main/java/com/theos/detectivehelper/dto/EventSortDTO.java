@@ -1,20 +1,15 @@
 package com.theos.detectivehelper.dto;
 
+import lombok.Data;
+
 import java.util.List;
 
 /**
  * 事件排序DTO
  */
+@Data
 public class EventSortDTO {
 
     private List<Long> eventIds;
-
-    public List<Long> getEventIds() {
-        return eventIds;
-    }
-
-    public void setEventIds(List<Long> eventIds) {
-        this.eventIds = eventIds;
-    }
 
 }

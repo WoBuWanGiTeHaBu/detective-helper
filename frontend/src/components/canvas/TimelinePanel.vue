@@ -4,6 +4,13 @@
     :class="{ vertical: isVertical, dragging }"
     :style="panelStyle"
   >
+    <!--
+      刻度宽度探针：纵向轴左侧要留多少白，取决于本机等宽字体把最宽那条刻度
+      渲染成多少像素。这里放一个不可见、不占位的同字体元素，由脚本喂文字量宽。
+      模板里刻意不写插值 —— 让 Vue 别去动它的子节点，宽度测量才不会被覆盖。
+    -->
+    <span ref="tickProbeRef" class="tick-probe" aria-hidden="true" />
+
     <!-- 右缘 / 下缘拖拽手柄：调整面板大小 -->
     <div
       class="tl-resize"
@@ -110,41 +117,77 @@
           @keyup.enter="submit"
           @keyup.esc="closeForm"
         />
-        <select v-model="draft.timeType" class="f-type">
-          <option value="exact">确定时刻</option>
-          <option value="range">时间段</option>
-          <option value="fuzzy">模糊时段</option>
-        </select>
+        <a-select
+          v-model:value="draft.timeType"
+          class="f-type"
+          size="small"
+          :dropdown-match-select-width="false"
+        >
+          <a-select-option value="exact">确定时刻</a-select-option>
+          <a-select-option value="range">时间段</a-select-option>
+          <a-select-option value="fuzzy">模糊时段</a-select-option>
+        </a-select>
       </div>
 
       <div class="f-row">
         <!-- 确定时刻 -->
-        <input
+        <a-date-picker
           v-if="draft.timeType === 'exact'"
-          v-model="draft.time"
+          v-model:value="timeModel"
           class="f-time"
-          type="datetime-local"
-          @keyup.esc="closeForm"
+          size="small"
+          show-time
+          format="YYYY-MM-DD HH:mm"
+          placeholder="选择日期与时刻"
+          :allow-clear="false"
         />
 
         <!-- 时间段 -->
         <template v-else-if="draft.timeType === 'range'">
-          <input v-model="draft.startTime" class="f-time" type="datetime-local" />
+          <a-date-picker
+            v-model:value="startModel"
+            class="f-time"
+            size="small"
+            show-time
+            format="YYYY-MM-DD HH:mm"
+            placeholder="开始"
+            :allow-clear="false"
+          />
           <span class="f-tilde">~</span>
-          <input v-model="draft.endTime" class="f-time" type="datetime-local" />
+          <a-date-picker
+            v-model:value="endModel"
+            class="f-time"
+            size="small"
+            show-time
+            format="YYYY-MM-DD HH:mm"
+            placeholder="结束"
+            :allow-clear="false"
+          />
         </template>
 
         <!-- 模糊时段 -->
         <template v-else>
-          <input v-model="draft.fuzzyDate" class="f-time" type="date" />
-          <select v-model="draft.fuzzyPeriod" class="f-period">
-            <option value="morning">清晨</option>
-            <option value="noon">正午</option>
-            <option value="afternoon">下午</option>
-            <option value="evening">傍晚</option>
-            <option value="night">深夜</option>
-            <option value="unknown">不详</option>
-          </select>
+          <a-date-picker
+            v-model:value="fuzzyDateModel"
+            class="f-time"
+            size="small"
+            format="YYYY-MM-DD"
+            placeholder="选择日期"
+            :allow-clear="false"
+          />
+          <a-select
+            v-model:value="draft.fuzzyPeriod"
+            class="f-period"
+            size="small"
+            :dropdown-match-select-width="false"
+          >
+            <a-select-option value="morning">清晨</a-select-option>
+            <a-select-option value="noon">正午</a-select-option>
+            <a-select-option value="afternoon">下午</a-select-option>
+            <a-select-option value="evening">傍晚</a-select-option>
+            <a-select-option value="night">深夜</a-select-option>
+            <a-select-option value="unknown">不详</a-select-option>
+          </a-select>
         </template>
       </div>
 
@@ -280,11 +323,21 @@
           <text
             v-if="!p.tickHidden"
             :x="px(p.pos)"
-            :y="tickY(p)"
+            :y="tickYOf(p.tickRow)"
             text-anchor="middle"
             class="tl-tick"
           >
             {{ p.tick }}
+          </text>
+          <!-- 时间段不能只标起点：终点没有时刻，「从什么时候到什么时候」就只读得到前半截 -->
+          <text
+            v-if="p.endTick && !p.endTickHidden"
+            :x="px(p.endPos)"
+            :y="tickYOf(p.endTickRow)"
+            text-anchor="middle"
+            class="tl-tick"
+          >
+            {{ p.endTick }}
           </text>
         </g>
 
@@ -418,11 +471,21 @@
           <text
             v-if="!p.tickHidden"
             :x="axisVX - 10"
-            :y="px(p.pos) + p.tickRow * TICK_STEP + 3.5"
+            :y="vTickY(p.pos, p.tickRow)"
             text-anchor="end"
             class="tl-tick"
           >
             {{ p.tick }}
+          </text>
+          <!-- 时间段终点时刻：纵向轴同样要标，否则只看得到一个端点 -->
+          <text
+            v-if="p.endTick && !p.endTickHidden"
+            :x="axisVX - 10"
+            :y="vTickY(p.endPos, p.endTickRow)"
+            text-anchor="end"
+            class="tl-tick"
+          >
+            {{ p.endTick }}
           </text>
         </g>
 
@@ -468,6 +531,7 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import dayjs, { type Dayjs } from 'dayjs'
 import type { FuzzyPeriod, TimeType, Timeline, TimelinePoint } from '@/api/types'
 import { layoutTimeline, type LaidOutPoint } from '@/utils/timelineLayout'
 import { localId } from '@/stores/workspaceStore'
@@ -513,7 +577,7 @@ watch(
 
 const panelStyle = computed(() =>
   isVertical.value
-    ? { width: `${V_PANEL_W}px`, height: `${panelH.value}px` }
+    ? { width: `${V_PANEL_W.value}px`, height: `${panelH.value}px` }
     : { width: `${panelW.value}px` }
 )
 
@@ -554,8 +618,10 @@ const dragging = ref(false)
 
 function startHeadDrag(e: MouseEvent) {
   const t = e.target as HTMLElement
-  // 头部里的输入框 / 按钮不参与拖动
-  if (t.closest('input, button, select')) return
+  // 头部里的输入框 / 按钮 / 下拉不参与拖动。
+  // .ant-select / .ant-picker 要单独列出来：它们的触发区是 div 而不是原生控件，
+  // 只判 input/button/select 的话，点在下拉框空白处会把整条时间线拖走。
+  if (t.closest('input, button, select, .ant-select, .ant-picker')) return
 
   dragging.value = true
   const sx = e.clientX
@@ -607,6 +673,39 @@ function emptyDraft(): Draft {
 }
 
 const draft = ref<Draft>(emptyDraft())
+
+/*
+  原本这里用的是 <input type="datetime-local"> / type="date"。
+  那是浏览器原生控件：Chrome 会弹系统选择器，但当时的外壳 JavaFX WebView（WebKit）
+  **不支持这两个类型** —— 不弹选择器、也不接受手输，表现就是「时间根本选不了」。
+
+  外壳现在换成了 Electron（Chromium），datetime-local 本可以用了，但这里**继续用 antd**：
+  原生日期面板是另一套视觉语言，混进这套低饱和绿灰里很突兀；
+  何况 antd 那份面板已经和界面上其它下拉框对齐过了。
+
+  Draft 里的时间仍是 'YYYY-MM-DDTHH:mm' 字符串，submit / toDraft / normalizeDateTime 一律不改，
+  中间垫一层 computed 做 dayjs ↔ 字符串的换算。
+  （这两个格式本身就是 ISO-8601，dayjs 直接解析即可，不用引 customParseFormat 插件。）
+*/
+function makeDateTimeModel(key: 'time' | 'startTime' | 'endTime') {
+  return computed<Dayjs | null>({
+    get: () => (draft.value[key] ? dayjs(draft.value[key]) : null),
+    set: (v) => {
+      draft.value[key] = v ? v.format('YYYY-MM-DDTHH:mm') : ''
+    }
+  })
+}
+
+const timeModel = makeDateTimeModel('time')
+const startModel = makeDateTimeModel('startTime')
+const endModel = makeDateTimeModel('endTime')
+
+const fuzzyDateModel = computed<Dayjs | null>({
+  get: () => (draft.value.fuzzyDate ? dayjs(draft.value.fuzzyDate) : null),
+  set: (v) => {
+    draft.value.fuzzyDate = v ? v.format('YYYY-MM-DD') : ''
+  }
+})
 
 const canSubmit = computed(() => {
   const d = draft.value
@@ -755,11 +854,30 @@ const V_LANE_STEP = 26
 const BUS_OFF = 10
 const BUS_GAP = 6
 const TICK_STEP = 14
-/** 纵向面板的 SVG 宽度（轴线左侧留给刻度，右侧留给卡片） */
-const V_PANEL_W = 320
-const V_AXIS_W = 292
+
+/* ---------------- 纵向：左侧留白按实测刻度宽度倒推 ----------------
+ * 原来这里是写死的「轴线 x = 66」，而刻度以 axisX - 10 右对齐。
+ * 于是「9/11 23:11」这类十来字符的刻度会把左边缘推到 x < 0，
+ * 被 SVG 视口直接裁掉开头几个字 —— 就是竖向时间轴里刻度「缺前半截」的原因。
+ * 更麻烦的是它随字体变：本机没装 Sarasa Mono 就会落到 Consolas，
+ * 字宽不同、吃掉的像素也不同，写死一个更大的常数只是把问题推给别的机器。
+ *
+ * 所以改成实测：探针元素（同样式字体）量出最宽那条刻度，再倒推轴线该站哪。
+ */
+const TICK_FONT_GAP = 14 // 刻度右端到轴线：10px 空隙 + 光晕与节点的余量
+const V_AXIS_MIN_X = 66 // 刻度都很短时，保持原来的视觉位置不动
+/** 面板比 SVG 宽出来的部分（左右各 14，给拖拽手柄和呼吸留白） */
+const V_PANEL_PAD = 28
+
+const tickProbeRef = ref<HTMLElement | null>(null)
+/** 最宽刻度的像素宽（布局像素，不含画布缩放） */
+const tickMaxWidth = ref(0)
+
 /** 纵向轴所在的 x 坐标 */
-const axisVX = 66
+const axisVX = computed(() => Math.max(V_AXIS_MIN_X, tickMaxWidth.value + TICK_FONT_GAP))
+/** 纵向面板的 SVG 宽度 = 左侧刻度留白 + 右侧卡片列 */
+const V_AXIS_W = computed(() => Math.max(292, axisVX.value + 16 + CARD_MAX_W + 24))
+const V_PANEL_W = computed(() => V_AXIS_W.value + V_PANEL_PAD)
 
 /** 轴线的 y：随卡片道数下移，最上面一道卡片永远贴着 y=12 */
 const axisY = computed(() => 46 + layout.value.labelRows * LANE_STEP)
@@ -840,14 +958,14 @@ const vGeoms = computed<VGeom[]>(() =>
   laidOut.value.map((p) => {
     const w = cardWidth(p.point.label)
     const my = px(p.pos)
-    const cardX = axisVX + 16
+    const cardX = axisVX.value + 16
     const cardY = Math.min(
       Math.max(my - CARD_H / 2 + p.labelRow * V_LANE_STEP, 2),
       Math.max(axisWidth.value - CARD_H - 2, 2)
     )
     const midY = cardY + CARD_H / 2
     // 水平（卡片左缘 → 母线）→ 竖直（母线 → 该点 y）→ 水平（母线 → 轴）
-    const link = `M ${round(cardX)} ${round(midY)} H ${round(axisVX + 7)} V ${round(my)} H ${round(axisVX)}`
+    const link = `M ${round(cardX)} ${round(midY)} H ${round(axisVX.value + 7)} V ${round(my)} H ${round(axisVX.value)}`
     return {
       id: p.point.id,
       point: p.point,
@@ -866,8 +984,9 @@ function round(n: number): number {
 }
 
 /* ---------------- 刻度 / 说明的 y ---------------- */
-function tickY(p: LaidOutPoint): number {
-  return tickBase.value + p.tickRow * TICK_STEP
+/** 刻度基线：横向轴按分道号往下错行；起止两个刻度各自带自己的道号 */
+function tickYOf(row: number): number {
+  return tickBase.value + row * TICK_STEP
 }
 
 function noteY(row: number): number {
@@ -876,6 +995,17 @@ function noteY(row: number): number {
 
 function px(pos: number): number {
   return (pos / 100) * axisWidth.value
+}
+
+/**
+ * 纵向刻度基线：分道错行是**往下推**的，靠底部的点被推过去就会掉出 SVG 视口
+ * （纵向的 SVG 高度由面板高度决定，不像横向那样能自己长高）。
+ * 与其让它消失，不如退回自己那一行 —— 挤一点，但读得到。
+ */
+function vTickY(pos: number, row: number): number {
+  const base = px(pos) + 3.5
+  const shifted = base + row * TICK_STEP
+  return shifted > axisWidth.value - 3 ? base : shifted
 }
 
 function dotFill(p: LaidOutPoint): string {
@@ -932,11 +1062,11 @@ const markers = computed(() =>
         hy2: axisY.value - 8,
         hw2: hw,
         hh2: 16,
-        vx: axisVX - 15,
+        vx: axisVX.value - 15,
         vy: hLeft,
         vw: 30,
         vh: hw,
-        vx2: axisVX - 8,
+        vx2: axisVX.value - 8,
         vy2: hLeft,
         vw2: 16,
         vh2: hw
@@ -978,9 +1108,67 @@ function measure() {
   axisWidth.value = w
 }
 
+/**
+ * 估算文字在等宽字体下的宽度权重：CJK / 全角是拉丁字符的两倍宽。
+ * 只用来挑"最可能是最宽的那几条"，不是精确值。
+ */
+function textUnits(text: string): number {
+  let units = 0
+  for (const ch of text) {
+    units += ch.charCodeAt(0) > 0x7f ? 2 : 1
+  }
+  return units
+}
+
+/**
+ * 量出最宽刻度占多少像素，纵向轴据此决定左侧留白。
+ *
+ * 为什么用 offsetWidth 而不是 getBoundingClientRect：
+ * 面板挂在 .stage 的 `transform: scale(zoom)` 里，getBoundingClientRect 返回的是
+ * **缩放后**的视觉尺寸，缩小画布会把刻度量窄、留白跟着算少。
+ * offsetWidth 取的是布局盒宽度，不受祖先 transform 影响 —— 正是指标文字在
+ * SVG 用户坐标系里的宽度。
+ *
+ * 读 offsetWidth 会强制一次同步布局，所以**不能**把每条刻度都量一遍：
+ * 刻度一多、再叠上拖动面板宽度时的连续重算，这里会变成卡顿源。
+ * 等宽字体下"单位数最多"的那条就是最宽的，量前几名取最大值即可；
+ * 取前几名而不是第一名，是为了万一本机把 --font-mono 落到了比例字体时不会排错。
+ */
+const MEASURE_CANDIDATES = 3
+
+function measureTicks() {
+  const el = tickProbeRef.value
+  if (!el) {
+    tickMaxWidth.value = 0
+    return
+  }
+
+  const seen = new Set<string>()
+  for (const p of laidOut.value) {
+    if (!p.tickHidden) seen.add(p.tick)
+    if (p.endTick && !p.endTickHidden) seen.add(p.endTick)
+  }
+
+  const candidates = [...seen]
+    .map((text) => ({ text, units: textUnits(text) }))
+    .sort((a, b) => b.units - a.units)
+    .slice(0, MEASURE_CANDIDATES)
+
+  let max = 0
+  for (const { text } of candidates) {
+    el.textContent = text
+    const w = el.offsetWidth
+    if (w > max) max = w
+  }
+  tickMaxWidth.value = Math.ceil(max)
+}
+
 onMounted(async () => {
+  // 先量刻度再量轴线：首次渲染就要拿到正确留白，否则会看到刻度闪一下才归位
+  measureTicks()
   await nextTick()
   measure()
+  measureTicks()
   window.addEventListener('resize', measure)
 })
 
@@ -989,7 +1177,21 @@ watch(
   async () => {
     await nextTick()
     measure()
+    measureTicks()
   }
+)
+
+// 刻度文案/显隐会随改时间、改类型、拖面板宽度而变，留白要跟着重算
+watch(
+  () =>
+    laidOut.value
+      .map((p) => `${p.tickHidden ? '-' : p.tick}|${p.endTickHidden ? '-' : p.endTick}`)
+      .join(','),
+  async () => {
+    await nextTick()
+    measureTicks()
+  },
+  { flush: 'post' }
 )
 
 defineExpose({ measure })
@@ -1013,6 +1215,24 @@ defineExpose({ measure })
 
 .tl-panel.vertical {
   min-height: 260px;
+}
+
+/*
+  刻度宽度探针：只用来量字宽，不参与布局、不可见、不接事件。
+  字体字号必须和 .tl-tick 一致，否则量出来的宽度没有意义。
+  inline-block + white-space:pre 让它有确定的盒子宽度（纯 inline 元素的
+  offsetWidth 在部分引擎里不稳），同时保留空格不被折行吞掉。
+*/
+.tick-probe {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: inline-block;
+  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  pointer-events: none;
+  visibility: hidden;
 }
 
 /* 右缘 / 下缘拖拽手柄 */
@@ -1223,25 +1443,19 @@ defineExpose({ measure })
   min-width: 0;
 }
 
-.f-type,
-.f-period,
+/*
+  .f-type / .f-period / .f-time 这三个类现在挂在 antd 的 <a-select> / <a-date-picker> 上，
+  结构不再是原生控件，所以外观统一交给 styles/global.css 里那组 .f-time.ant-picker 规则。
+  这里只保留宽度分配 —— antd 的内层节点不带 scoped 的 data-v 属性，写在 scoped 里也够不着。
+*/
 .f-time {
-  flex: none;
-  height: 26px;
-  padding: 0 7px;
-  border: 1px solid #e0dacc;
-  border-radius: 6px;
-  background: #fff;
-  font-family: inherit;
-  font-size: 11px;
-  color: var(--ink-1);
-  outline: 0;
-  transition: border-color 140ms var(--ease);
+  flex: 1 1 150px;
+  min-width: 0;
 }
 
-.f-time {
-  flex: 1;
-  min-width: 0;
+.f-type,
+.f-period {
+  flex: none;
 }
 
 .f-label {
@@ -1257,10 +1471,7 @@ defineExpose({ measure })
   transition: border-color 140ms var(--ease);
 }
 
-.f-label:focus,
-.f-type:focus,
-.f-period:focus,
-.f-time:focus {
+.f-label:focus {
   border-color: #a6bfb0;
 }
 

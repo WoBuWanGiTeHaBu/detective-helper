@@ -1,5 +1,7 @@
 package com.theos.detectivehelper.dto;
 
+import lombok.Data;
+
 import com.fasterxml.jackson.annotation.JsonAnyGetter;
 import com.fasterxml.jackson.annotation.JsonAnySetter;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -26,6 +28,7 @@ import java.util.Map;
  * </ul>
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
+@Data
 public class CanvasResponse {
 
     /** 画布背景：plain / grid / dot / line，缺省 plain */
@@ -41,62 +44,6 @@ public class CanvasResponse {
     private List<Annotation> annotations;
     private List<Timeline> timelines;
 
-    public String getBackground() {
-        return background;
-    }
-
-    public void setBackground(String background) {
-        this.background = background;
-    }
-
-    public Double getCanvasWidth() {
-        return canvasWidth;
-    }
-
-    public void setCanvasWidth(Double canvasWidth) {
-        this.canvasWidth = canvasWidth;
-    }
-
-    public Double getCanvasHeight() {
-        return canvasHeight;
-    }
-
-    public void setCanvasHeight(Double canvasHeight) {
-        this.canvasHeight = canvasHeight;
-    }
-
-    public List<CanvasObject> getObjects() {
-        return objects;
-    }
-
-    public void setObjects(List<CanvasObject> objects) {
-        this.objects = objects;
-    }
-
-    public List<Relationship> getRelationships() {
-        return relationships;
-    }
-
-    public void setRelationships(List<Relationship> relationships) {
-        this.relationships = relationships;
-    }
-
-    public List<Annotation> getAnnotations() {
-        return annotations;
-    }
-
-    public void setAnnotations(List<Annotation> annotations) {
-        this.annotations = annotations;
-    }
-
-    public List<Timeline> getTimelines() {
-        return timelines;
-    }
-
-    public void setTimelines(List<Timeline> timelines) {
-        this.timelines = timelines;
-    }
-
     /**
      * 可携带未知字段的基类
      * <p>
@@ -104,6 +51,7 @@ public class CanvasResponse {
      * 在「GET → PUT」一轮往返后悄悄丢失。这里用 any-setter/getter 把它们兜住并原样写回。
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
+    @Data
     public abstract static class Extensible {
 
         private final Map<String, Object> extra = new LinkedHashMap<>();
@@ -121,6 +69,7 @@ public class CanvasResponse {
     }
 
     /** 画布对象（人物 / 事件 / 物品等节点） */
+    @Data
     public static class CanvasObject extends Extensible {
 
         private String id;
@@ -141,112 +90,10 @@ public class CanvasResponse {
         /** 自定义字段，任意键值对，原样存取（空对象不能被写成 null） */
         private Map<String, Object> customFields;
 
-        public String getId() {
-            return id;
-        }
-
-        public void setId(String id) {
-            this.id = id;
-        }
-
-        public String getType() {
-            return type;
-        }
-
-        public void setType(String type) {
-            this.type = type;
-        }
-
-        public String getShape() {
-            return shape;
-        }
-
-        public void setShape(String shape) {
-            this.shape = shape;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public void setName(String name) {
-            this.name = name;
-        }
-
-        public String getDescription() {
-            return description;
-        }
-
-        public void setDescription(String description) {
-            this.description = description;
-        }
-
-        public Double getX() {
-            return x;
-        }
-
-        public void setX(Double x) {
-            this.x = x;
-        }
-
-        public Double getY() {
-            return y;
-        }
-
-        public void setY(Double y) {
-            this.y = y;
-        }
-
-        public Double getWidth() {
-            return width;
-        }
-
-        public void setWidth(Double width) {
-            this.width = width;
-        }
-
-        public Double getHeight() {
-            return height;
-        }
-
-        public void setHeight(Double height) {
-            this.height = height;
-        }
-
-        public String getText() {
-            return text;
-        }
-
-        public void setText(String text) {
-            this.text = text;
-        }
-
-        public String getImage() {
-            return image;
-        }
-
-        public void setImage(String image) {
-            this.image = image;
-        }
-
-        public Map<String, Object> getStyle() {
-            return style;
-        }
-
-        public void setStyle(Map<String, Object> style) {
-            this.style = style;
-        }
-
-        public Map<String, Object> getCustomFields() {
-            return customFields;
-        }
-
-        public void setCustomFields(Map<String, Object> customFields) {
-            this.customFields = customFields;
-        }
     }
 
     /** 关系连线 */
+    @Data
     public static class Relationship extends Extensible {
 
         private String id;
@@ -256,56 +103,10 @@ public class CanvasResponse {
         private String label;
         private Map<String, Object> style;
 
-        public String getId() {
-            return id;
-        }
-
-        public void setId(String id) {
-            this.id = id;
-        }
-
-        public String getSource() {
-            return source;
-        }
-
-        public void setSource(String source) {
-            this.source = source;
-        }
-
-        public String getTarget() {
-            return target;
-        }
-
-        public void setTarget(String target) {
-            this.target = target;
-        }
-
-        public String getType() {
-            return type;
-        }
-
-        public void setType(String type) {
-            this.type = type;
-        }
-
-        public String getLabel() {
-            return label;
-        }
-
-        public void setLabel(String label) {
-            this.label = label;
-        }
-
-        public Map<String, Object> getStyle() {
-            return style;
-        }
-
-        public void setStyle(Map<String, Object> style) {
-            this.style = style;
-        }
     }
 
     /** 注解（便利贴式文本框），content 为 HTML 片段 */
+    @Data
     public static class Annotation extends Extensible {
 
         private String id;
@@ -316,64 +117,10 @@ public class CanvasResponse {
         private String content;
         private Map<String, Object> style;
 
-        public String getId() {
-            return id;
-        }
-
-        public void setId(String id) {
-            this.id = id;
-        }
-
-        public Double getX() {
-            return x;
-        }
-
-        public void setX(Double x) {
-            this.x = x;
-        }
-
-        public Double getY() {
-            return y;
-        }
-
-        public void setY(Double y) {
-            this.y = y;
-        }
-
-        public Double getWidth() {
-            return width;
-        }
-
-        public void setWidth(Double width) {
-            this.width = width;
-        }
-
-        public Double getHeight() {
-            return height;
-        }
-
-        public void setHeight(Double height) {
-            this.height = height;
-        }
-
-        public String getContent() {
-            return content;
-        }
-
-        public void setContent(String content) {
-            this.content = content;
-        }
-
-        public Map<String, Object> getStyle() {
-            return style;
-        }
-
-        public void setStyle(Map<String, Object> style) {
-            this.style = style;
-        }
     }
 
     /** 时间线面板 */
+    @Data
     public static class Timeline extends Extensible {
 
         private String id;
@@ -390,64 +137,10 @@ public class CanvasResponse {
         private Double height;
         private Map<String, Object> style;
 
-        public String getId() {
-            return id;
-        }
-
-        public void setId(String id) {
-            this.id = id;
-        }
-
-        public String getName() {
-            return name;
-        }
-
-        public void setName(String name) {
-            this.name = name;
-        }
-
-        public String getDirection() {
-            return direction;
-        }
-
-        public void setDirection(String direction) {
-            this.direction = direction;
-        }
-
-        public List<TimelinePoint> getPoints() {
-            return points;
-        }
-
-        public void setPoints(List<TimelinePoint> points) {
-            this.points = points;
-        }
-
-        public Double getX() {
-            return x;
-        }
-
-        public void setX(Double x) {
-            this.x = x;
-        }
-
-        public Double getY() {
-            return y;
-        }
-
-        public void setY(Double y) {
-            this.y = y;
-        }
-
-        public Map<String, Object> getStyle() {
-            return style;
-        }
-
-        public void setStyle(Map<String, Object> style) {
-            this.style = style;
-        }
     }
 
     /** 时间线上的时间点 */
+    @Data
     public static class TimelinePoint extends Extensible {
 
         private String id;
@@ -465,100 +158,5 @@ public class CanvasResponse {
         private String description;
         private Map<String, Object> labelOffset;
 
-        public String getId() {
-            return id;
-        }
-
-        public void setId(String id) {
-            this.id = id;
-        }
-
-        public String getTimeType() {
-            return timeType;
-        }
-
-        public void setTimeType(String timeType) {
-            this.timeType = timeType;
-        }
-
-        public String getTime() {
-            return time;
-        }
-
-        public void setTime(String time) {
-            this.time = time;
-        }
-
-        public String getStartTime() {
-            return startTime;
-        }
-
-        public void setStartTime(String startTime) {
-            this.startTime = startTime;
-        }
-
-        public String getEndTime() {
-            return endTime;
-        }
-
-        public void setEndTime(String endTime) {
-            this.endTime = endTime;
-        }
-
-        public String getFuzzyDate() {
-            return fuzzyDate;
-        }
-
-        public void setFuzzyDate(String fuzzyDate) {
-            this.fuzzyDate = fuzzyDate;
-        }
-
-        public String getFuzzyPeriod() {
-            return fuzzyPeriod;
-        }
-
-        public void setFuzzyPeriod(String fuzzyPeriod) {
-            this.fuzzyPeriod = fuzzyPeriod;
-        }
-
-        public String getResolvedStart() {
-            return resolvedStart;
-        }
-
-        public void setResolvedStart(String resolvedStart) {
-            this.resolvedStart = resolvedStart;
-        }
-
-        public String getResolvedEnd() {
-            return resolvedEnd;
-        }
-
-        public void setResolvedEnd(String resolvedEnd) {
-            this.resolvedEnd = resolvedEnd;
-        }
-
-        public String getLabel() {
-            return label;
-        }
-
-        public void setLabel(String label) {
-            this.label = label;
-        }
-
-        public String getDescription() {
-            return description;
-        }
-
-        public void setDescription(String description) {
-            this.description = description;
-        }
-
-        public Map<String, Object> getLabelOffset() {
-            return labelOffset;
-        }
-
-        public void setLabelOffset(Map<String, Object> labelOffset) {
-            this.labelOffset = labelOffset;
-        }
     }
 }

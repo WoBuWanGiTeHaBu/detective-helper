@@ -2,6 +2,7 @@ package com.theos.detectivehelper.service;
 
 import com.theos.detectivehelper.common.ErrorCode;
 import com.theos.detectivehelper.common.exception.BusinessException;
+import com.theos.detectivehelper.config.StorageProperties;
 import com.theos.detectivehelper.domain.Book;
 import com.theos.detectivehelper.domain.Event;
 import com.theos.detectivehelper.domain.Page;
@@ -23,7 +24,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
@@ -38,9 +38,6 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class BookService {
-
-    /** 封面文件存放目录（SqliteConfig 启动时已创建），coverValue 以 covers/ 开头 */
-    private static final Path COVERS_DIR = Paths.get("data", "covers");
 
     /** 封面大小上限：2MB（与 OpenAPI 文档一致） */
     private static final long MAX_COVER_SIZE = 2 * 1024 * 1024;
@@ -60,17 +57,25 @@ public class BookService {
     private final PageRepository pageRepository;
     private final RelationGraphRepository relationGraphRepository;
     private final FamilyTreeRepository familyTreeRepository;
+    private final StorageProperties storage;
 
     public BookService(BookRepository bookRepository,
                        EventRepository eventRepository,
                        PageRepository pageRepository,
                        RelationGraphRepository relationGraphRepository,
-                       FamilyTreeRepository familyTreeRepository) {
+                       FamilyTreeRepository familyTreeRepository,
+                       StorageProperties storage) {
         this.bookRepository = bookRepository;
         this.eventRepository = eventRepository;
         this.pageRepository = pageRepository;
         this.relationGraphRepository = relationGraphRepository;
         this.familyTreeRepository = familyTreeRepository;
+        this.storage = storage;
+    }
+
+    /** 封面目录（启动时已创建）。路径一律从配置取，不写相对路径 */
+    private Path coversDir() {
+        return storage.coversDir();
     }
 
     /**
@@ -172,10 +177,10 @@ public class BookService {
         String oldValue = book.getCoverValue();
         String filename = "book_" + id + "_" + System.currentTimeMillis() + "." + extension;
         String coverValue = "covers/" + filename;
-        Path target = COVERS_DIR.resolve(filename);
+        Path target = coversDir().resolve(filename);
 
         try {
-            Files.createDirectories(COVERS_DIR);
+            Files.createDirectories(coversDir());
             try (var in = file.getInputStream()) {
                 Files.copy(in, target, StandardCopyOption.REPLACE_EXISTING);
             }
@@ -190,7 +195,7 @@ public class BookService {
         // 新文件落盘且书籍更新成功后再清理旧封面，失败不影响本次上传
         if (oldValue != null && oldValue.startsWith("covers/")) {
             try {
-                Files.deleteIfExists(COVERS_DIR.resolve(oldValue.substring("covers/".length())));
+                Files.deleteIfExists(coversDir().resolve(oldValue.substring("covers/".length())));
             } catch (IOException ignored) {
             }
         }

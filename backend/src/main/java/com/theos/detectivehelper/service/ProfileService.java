@@ -8,8 +8,6 @@ import com.theos.detectivehelper.vo.ProfileVO;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.Map;
-
 /**
  * 用户资料服务（单机单用户）
  * <p>
@@ -34,7 +32,7 @@ public class ProfileService {
 
     public ProfileVO getProfile() {
         return userProfileRepository.find()
-                .map(row -> new ProfileVO(row.get("displayName"), row.get("theme")))
+                .map(row -> new ProfileVO(row.getDisplayName(), row.getTheme()))
                 .orElseGet(() -> new ProfileVO(DEFAULT_DISPLAY_NAME, DEFAULT_THEME));
     }
 

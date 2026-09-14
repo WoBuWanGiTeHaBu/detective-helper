@@ -1,72 +1,57 @@
 package com.theos.detectivehelper.repository;
 
 import com.theos.detectivehelper.domain.FamilyTree;
-import org.springframework.jdbc.core.JdbcTemplate;
-import org.springframework.jdbc.core.RowMapper;
-import org.springframework.stereotype.Repository;
+import org.apache.ibatis.annotations.Delete;
+import org.apache.ibatis.annotations.Insert;
+import org.apache.ibatis.annotations.Mapper;
+import org.apache.ibatis.annotations.Options;
+import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * 族谱图仓库
+ * 族谱图仓储（MyBatis）。对外签名与原 JdbcTemplate 版本保持一致。
  */
-@Repository
-public class FamilyTreeRepository {
+@Mapper
+public interface FamilyTreeRepository {
 
-    private final JdbcTemplate jdbcTemplate;
+    @Insert("""
+            INSERT INTO family_tree (book_id, name, data, created_at, updated_at)
+            VALUES (#{bookId}, #{name}, #{data}, #{createdAt}, #{updatedAt})
+            """)
+    @Options(useGeneratedKeys = true, keyProperty = "id")
+    int insertRow(FamilyTree tree);
 
-    public FamilyTreeRepository(JdbcTemplate jdbcTemplate) {
-        this.jdbcTemplate = jdbcTemplate;
-    }
+    @Update("UPDATE family_tree SET name = #{name}, data = #{data}, updated_at = #{updatedAt} WHERE id = #{id}")
+    int updateRow(FamilyTree tree);
 
-    private final RowMapper<FamilyTree> familyTreeRowMapper = new RowMapper<FamilyTree>() {
-        @Override
-        public FamilyTree mapRow(ResultSet rs, int rowNum) throws SQLException {
-            FamilyTree tree = new FamilyTree();
-            tree.setId(rs.getLong("id"));
-            tree.setBookId(rs.getLong("book_id"));
-            tree.setName(rs.getString("name"));
-            tree.setData(rs.getString("data"));
-            tree.setCreatedAt(rs.getString("created_at"));
-            tree.setUpdatedAt(rs.getString("updated_at"));
-            return tree;
-        }
-    };
+    @Select("SELECT * FROM family_tree WHERE id = #{id}")
+    FamilyTree selectRowById(@Param("id") Long id);
 
-    public FamilyTree save(FamilyTree tree) {
+    default FamilyTree save(FamilyTree tree) {
         if (tree.getId() == null) {
-            String sql = "INSERT INTO family_tree (book_id, name, data, created_at, updated_at) VALUES (?, ?, ?, ?, ?)";
-            jdbcTemplate.update(sql, tree.getBookId(), tree.getName(), tree.getData(), tree.getCreatedAt(), tree.getUpdatedAt());
-            tree.setId(jdbcTemplate.queryForObject("SELECT last_insert_rowid()", Long.class));
+            insertRow(tree);
         } else {
-            String sql = "UPDATE family_tree SET name = ?, data = ?, updated_at = ? WHERE id = ?";
-            tree.setUpdatedAt(java.time.Instant.now().toString());
-            jdbcTemplate.update(sql, tree.getName(), tree.getData(), tree.getUpdatedAt(), tree.getId());
+            tree.setUpdatedAt(Instant.now().toString());
+            updateRow(tree);
         }
         return tree;
     }
 
-    public Optional<FamilyTree> findById(Long id) {
-        String sql = "SELECT * FROM family_tree WHERE id = ?";
-        return jdbcTemplate.query(sql, familyTreeRowMapper, id).stream().findFirst();
+    default Optional<FamilyTree> findById(Long id) {
+        return Optional.ofNullable(selectRowById(id));
     }
 
-    public List<FamilyTree> findByBookId(Long bookId) {
-        String sql = "SELECT * FROM family_tree WHERE book_id = ? ORDER BY created_at DESC";
-        return jdbcTemplate.query(sql, familyTreeRowMapper, bookId);
-    }
+    @Select("SELECT * FROM family_tree WHERE book_id = #{bookId} ORDER BY created_at DESC")
+    List<FamilyTree> findByBookId(@Param("bookId") Long bookId);
 
-    public void deleteById(Long id) {
-        String sql = "DELETE FROM family_tree WHERE id = ?";
-        jdbcTemplate.update(sql, id);
-    }
+    @Delete("DELETE FROM family_tree WHERE id = #{id}")
+    void deleteById(@Param("id") Long id);
 
-    public void deleteByBookId(Long bookId) {
-        String sql = "DELETE FROM family_tree WHERE book_id = ?";
-        jdbcTemplate.update(sql, bookId);
-    }
-
+    @Delete("DELETE FROM family_tree WHERE book_id = #{bookId}")
+    void deleteByBookId(@Param("bookId") Long bookId);
 }
