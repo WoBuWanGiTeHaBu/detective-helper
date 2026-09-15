@@ -18,7 +18,7 @@
     <description>后端服务模块 - Spring Boot REST API + MyBatis + SQLite</description>
 
     <dependencies>
-        <!-- Spring Boot Web（同时是 desktop 的传递依赖，不要在 desktop 里重复声明） -->
+        <!-- Spring Boot Web：REST 接口 + 托管前端静态资源 -->
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-web</artifactId>
@@ -85,8 +85,9 @@
         <plugins>
             <!--
               关键：backend 必须产出【普通 jar】，不能是 Spring Boot fat jar。
-              desktop 依赖 backend 时，如果吃到的是 fat jar，里面的类会被塞进 BOOT-INF/classes，
-              在 desktop 的 fat jar 里就变成「嵌套 jar 再嵌套 jar」，Spring Boot 的类加载器读不到。
+              Electron 外壳是按 `java -cp "app.jar;lib\*"` 启动后端的（见 electron/main.js），
+              fat jar 的 BOOT-INF 布局会让每个类和资源都走一遍 BootLoader 偏移量解压，冷启动明显更慢；
+              而且 BootLoader 需要 classpath 上有一个嵌套 jar，CDS 归档就没法复用。
               做法就是把 repackage 的执行绑到不存在的 phase 上，等于关掉它。
             -->
             <plugin>

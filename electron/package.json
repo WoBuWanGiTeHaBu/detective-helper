@@ -1,0 +1,70 @@
+{
+  "name": "detective-helper",
+  "productName": "Detective Helper",
+  "version": "1.0.0",
+  "description": "推演录 · 单机案件推演笔记",
+  "main": "main.js",
+  "private": true,
+  "author": "Theos",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win zip nsis --x64",
+    "dist:zip": "electron-builder --win zip --x64",
+    "dist:nsis": "electron-builder --win nsis --x64"
+  },
+  "build": {
+    "appId": "com.theos.detectivehelper",
+    "productName": "Detective Helper",
+    "copyright": "Copyright © 2026 Theos",
+    "directories": {
+      "output": "../build/release",
+      "buildResources": "resources"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "loading.html",
+      "assets/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../build/stage-jvm/jre",
+        "to": "jre"
+      },
+      {
+        "from": "../build/stage-jvm/app",
+        "to": "app",
+        "filter": [
+          "**/*",
+          "!*.log",
+          "!*.err",
+          "!*.meta"
+        ]
+      }
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        "zip",
+        "nsis"
+      ]
+    },
+    "artifactName": "Detective-Helper-${version}-win-x64.${ext}",
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Detective Helper",
+      "artifactName": "Detective-Helper-${version}-win-x64-setup.${ext}",
+      "deleteAppDataOnUninstall": false,
+      "include": "build/installer.nsh"
+    }
+  },
+  "devDependencies": {
+    "electron": "^44.3.0",
+    "electron-builder": "^26.15.3"
+  }
+}

@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta http-equiv="Content-Security-Policy"
+        content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline';" />
+  <title>Detective Helper</title>
+  <style>
+    /* 取色一律来自 frontend/src/styles/tokens.css，不要另发明颜色 */
+    :root {
+      --bg-app: #F4F2EE;
+      --bg-card: #FFFFFF;
+      --green: #7C9A88;
+      --green-ink: #3F5B4C;
+      --ink-1: #2E2C29;
+      --ink-3: #8C877E;
+      --ink-5: #A8A29A;
+      --line-1: #E8E4DC;
+      --font-serif: "Source Han Serif CN", "Source Han Serif SC", "思源宋体",
+                    "Noto Serif SC", "Songti SC", "STZhongsong", "华文中宋", serif;
+      --font-sans: "Source Han Sans CN", "Source Han Sans SC", "思源黑体",
+                   "Noto Sans SC", "PingFang SC", "Microsoft YaHei", "微软雅黑",
+                   "Segoe UI", system-ui, sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    body {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--bg-app);
+      font-family: var(--font-sans);
+      color: var(--ink-1);
+      -webkit-user-select: none;
+      user-select: none;
+    }
+
+    .stage {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 26px;
+      width: 420px;
+      text-align: center;
+    }
+
+    .brand {
+      font-family: var(--font-serif);
+      font-size: 30px;
+      letter-spacing: 0.22em;
+      /* 字距会把最后一个字的右空隙带出来，负 margin 抵消掉才是真居中 */
+      text-indent: 0.22em;
+      margin: 0;
+      color: var(--ink-1);
+    }
+
+    .subtitle {
+      margin-top: -14px;
+      font-size: 12px;
+      letter-spacing: 0.14em;
+      color: var(--ink-5);
+    }
+
+    /* 三颗呼吸点：比转圈更安静，和这套低饱和配色更搭 */
+    .dots {
+      display: flex;
+      gap: 9px;
+      height: 12px;
+      align-items: center;
+    }
+
+    .dots i {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      opacity: 0.28;
+      animation: breathe 1.25s var(--ease, ease-in-out) infinite;
+    }
+
+    .dots i:nth-child(2) { animation-delay: 0.16s; }
+    .dots i:nth-child(3) { animation-delay: 0.32s; }
+
+    @keyframes breathe {
+      0%, 100% { opacity: 0.22; transform: scale(0.86); }
+      45%      { opacity: 0.92; transform: scale(1); }
+    }
+
+    /* 失败态：停止呼吸动画，换成静态的告警色点 */
+    .stage[data-state="failed"] .dots i {
+      animation: none;
+      opacity: 0.9;
+      background: #B4796A;
+    }
+
+    .message {
+      font-size: 13px;
+      line-height: 1.85;
+      color: var(--ink-3);
+      white-space: pre-wrap;
+      max-width: 100%;
+    }
+
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--line-1);
+      border-radius: 14px;
+      padding: 26px 28px;
+      width: 100%;
+      box-shadow: 0 6px 18px rgba(89, 84, 74, 0.08);
+    }
+
+    .hint {
+      font-size: 11.5px;
+      color: var(--ink-5);
+      line-height: 1.7;
+    }
+
+    .actions {
+      display: none;
+      gap: 10px;
+      justify-content: center;
+      margin-top: 4px;
+    }
+
+    .stage[data-state="failed"] .actions { display: flex; }
+
+    button {
+      font-family: inherit;
+      font-size: 12.5px;
+      padding: 7px 16px;
+      border-radius: 10px;
+      border: 1px solid var(--line-1);
+      background: var(--bg-card);
+      color: var(--ink-1);
+      cursor: pointer;
+      transition: border-color 140ms ease, background 140ms ease;
+    }
+
+    button:hover { border-color: var(--green); }
+
+    button.primary {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+    }
+
+    button.primary:hover { background: #5D7A6A; border-color: #5D7A6A; }
+  </style>
+</head>
+<body>
+  <div class="stage" id="stage" data-state="booting">
+    <h1 class="brand">推演录</h1>
+    <div class="subtitle">DETECTIVE HELPER</div>
+
+    <div class="card">
+      <div class="dots"><i></i><i></i><i></i></div>
+      <p class="message" id="message">正在启动本地服务…</p>
+    </div>
+
+    <div class="actions">
+      <button class="primary" id="btn-retry">重试</button>
+      <button id="btn-logs">打开日志</button>
+      <button id="btn-data">打开数据目录</button>
+    </div>
+
+    <div class="hint">案件数据全部保存在本机，不联网。</div>
+  </div>
+
+  <script>
+    const stage = document.getElementById('stage')
+    const message = document.getElementById('message')
+
+    const api = window.detectiveHelper
+
+    function applyStatus (payload) {
+      if (!payload) return
+      if (payload.text) message.textContent = payload.text
+      if (payload.state) stage.dataset.state = payload.state
+    }
+
+    if (api) {
+      if (typeof api.onStatus === 'function') {
+        api.onStatus(applyStatus)
+      }
+      // 主进程可能在页面加载完成之前就推送过状态，那条消息会丢 —— 主动补拉一次
+      if (typeof api.getStatus === 'function') {
+        api.getStatus().then(applyStatus).catch(() => {})
+      }
+    }
+
+    document.getElementById('btn-retry').addEventListener('click', () => {
+      if (api && typeof api.retryBoot === 'function') {
+        // 重新走完整启动流程（挑端口、拉起新的 JVM），而不是刷新这个页面
+        message.textContent = '正在重新启动本地服务…'
+        stage.dataset.state = 'booting'
+        api.retryBoot().catch(() => {})
+      } else {
+        location.reload()
+      }
+    })
+
+    document.getElementById('btn-logs').addEventListener('click', () => {
+      if (api) api.openLogs()
+    })
+
+    document.getElementById('btn-data').addEventListener('click', () => {
+      if (api) api.openDataDir()
+    })
+  </script>
+</body>
+</html>

@@ -32,6 +32,12 @@ yarn.lock
 # 前端构建
 frontend/dist/
 frontend/.vite/
+# vite 加载配置时会生成临时文件，正常会自动删，中断时会残留
+*.timestamp-*.mjs
+
+# 构建产物与打包暂存（jlink 裁出的 JRE、CDS 归档、electron-builder 输出）
+# 全部可由 scripts\build-release.ps1 重新生成，不该进版本库
+build/
 
 # 后端数据
 data/
