@@ -6,7 +6,18 @@
 完全离线：不联网、不要账号，数据就是一个 SQLite 文件加一组附件，放在应用目录的 `data/` 下。
 
 ---
+## 预览
 
+注意：演示为真探1第一案，不完全
+
+![preview](images/1.png)
+![preview](images/2.png)
+![preview](images/3.png)
+![preview](images/4.png)
+![preview](images/5.png)
+![preview](images/6.png)
+![preview](images/7.png)
+---
 ## 架构
 
 ```
