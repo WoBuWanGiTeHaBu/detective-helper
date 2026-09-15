@@ -169,6 +169,3 @@ classpath 形态的排序实测是：嵌套 fat jar > 展开 classes 目录 > �
 后端接口以 `D:\文本\推理笔记 API.openapi.json` 为准，统一 `Result<T>` 包装。
 前端视角的字段需求见 `frontend/docs/后端接口需求.md`。
 
-## 许可
-
-私有项目，未授权分发。
