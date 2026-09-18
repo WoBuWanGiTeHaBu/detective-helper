@@ -390,3 +390,5 @@ export type CanvasTool =
   | 'timeline'
   | 'annotation'
   | 'relationGraph'
+  /** 导出当前页画布为 PNG（即时动作，不切换当前工具） */
+  | 'exportImage'

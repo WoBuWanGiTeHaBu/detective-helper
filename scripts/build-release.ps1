@@ -38,6 +38,10 @@
   跳过运行时暂存（jlink 裁剪 + CDS 训练），复用现有 build\stage-jvm。
   只在确认 JRE / 依赖都没变时用；盲目复用会让包里带着旧 JRE。
 
+.PARAMETER SkipPackage
+  跳过 electron-builder，只补做「给 zip 套顶层目录」那一步。
+  用途：electron-builder 已经跑完、只有套目录这步挂了时，不必再等那几分钟。
+
 .PARAMETER Targets
   只出某一种格式，逗号分隔：zip / nsis。默认两种都出。
 
@@ -60,6 +64,7 @@
 param(
     [switch]$NoBuild,
     [switch]$SkipStage,
+    [switch]$SkipPackage,
     [string]$Targets = 'zip,nsis',
     [switch]$RunTests
 )
@@ -148,6 +153,24 @@ function Add-ZipRootFolder {
     )
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
+    # ⚠ ZipArchive / ZipArchiveMode / CompressionLevel 都住在 System.IO.Compression 里，
+    #   只加载 .FileSystem 是不够的（它只带 ZipFile / ZipFileExtensions）。
+    #   以前只写上面那一行也能过，纯属运气 —— 那个会话恰好已经把 System.IO.Compression
+    #   加载进来了（别的模块或前一条命令干的）。换成干净的会话就报
+    #   「找不到类型 [System.IO.Compression.ZipArchiveMode]」。两行都要留着。
+    Add-Type -AssemblyName System.IO.Compression
+
+    # 幂等：已套过顶层目录的 zip 不再重复套，否则会变成 Detective Helper/Detective Helper/...
+    $probe = [System.IO.Compression.ZipFile]::OpenRead($ZipPath)
+    try {
+        $firstEntry = $probe.Entries | Select-Object -First 1
+        if ($firstEntry -and $firstEntry.FullName.StartsWith("$RootName/")) {
+            Write-DhaInfo "  $([System.IO.Path]::GetFileName($ZipPath)) 已带顶层目录，跳过"
+            return
+        }
+    } finally {
+        $probe.Dispose()
+    }
 
     $srcFull = (Resolve-Path -LiteralPath $SourceDir).Path.TrimEnd('\')
     $tmp = "$ZipPath.tmp"
@@ -233,19 +256,53 @@ if (-not (Test-Path $stageCds)) {
 
 # ---------------------------------------------------------------- 3/4 electron-builder
 
-Write-DhaStep "3/4 electron-builder 打包（$($targetList -join ', ')）"
-Write-DhaInfo "产物目录：$releaseDir"
+if ($SkipPackage) {
+    Write-DhaStep '3/4 跳过 electron-builder（-SkipPackage）—— 只补做下面的套顶层目录'
+} else {
+    Write-DhaStep "3/4 electron-builder 打包（$($targetList -join ', ')）"
+    Write-DhaInfo "产物目录：$releaseDir"
 
-$builderArgs = @($builderCli, '--win') + $targetList + @('--x64')
-Invoke-DhaNative -FilePath $nodeExe -Arguments $builderArgs -WorkingDirectory $electronDir
-if ($LASTEXITCODE -ne 0) {
-    Write-DhaFail "electron-builder 失败（退出码 $LASTEXITCODE）"
-    exit 1
+    $builderArgs = @($builderCli, '--win') + $targetList + @('--x64')
+    Invoke-DhaNative -FilePath $nodeExe -Arguments $builderArgs -WorkingDirectory $electronDir
+    if ($LASTEXITCODE -ne 0) {
+        Write-DhaFail "electron-builder 失败（退出码 $LASTEXITCODE）"
+        exit 1
+    }
 }
 
 # ---------------------------------------------------------------- 3b. 给 zip 套顶层目录
 
-$zipArtifacts = @(Get-ChildItem $releaseDir -Filter '*.zip' -File -ErrorAction SilentlyContinue)
+$version = Get-DhaAppVersion -ProjectRoot $root
+
+# 产物文件名是 electron-builder 按 electron/package.json 的 version 拼的，而
+# Get-DhaAppVersion 读的是根 pom.xml。两个来源不一致时，按后者筛会一个 zip 都筛不到，
+# 于是**静默跳过**套目录（包照发，但解压出来是一堆散文件）。所以这里按"产物实际用的
+# 那个版本"来筛，并且一旦发现两处不一致就直说。
+$pkgVersion = $null
+$pkgJson = Join-Path $electronDir 'package.json'
+if (Test-Path $pkgJson) {
+    $mv = [regex]::Match((Get-Content $pkgJson -Raw -Encoding UTF8), '"version"\s*:\s*"([^"]+)"')
+    if ($mv.Success) { $pkgVersion = $mv.Groups[1].Value.Trim() }
+}
+$zipVersion = $version
+if ($pkgVersion) {
+    $zipVersion = $pkgVersion
+    if ($pkgVersion -ne $version) {
+        Write-DhaWarn "版本号两处不一致：pom.xml=$version，electron/package.json=$pkgVersion（按后者筛产物，记得两处一起改）"
+    }
+}
+
+# 只处理【本次版本】的 zip。以前这里是 '*.zip'，会顺手把 build\release 里遗留的旧版本
+# zip 一起捞进来重打 —— 旧 zip 排在前面先被处理，一旦那步出错就中断整个循环，
+# 反倒把本次刚打好的新 zip 漏掉（报错信息还会指向一个跟本次构建无关的旧文件）。
+$zipArtifacts = @(Get-ChildItem $releaseDir -Filter "*-$zipVersion-*.zip" -File -ErrorAction SilentlyContinue)
+if ($zipArtifacts.Count -eq 0) {
+    if (-not $SkipPackage -and $targetList -contains 'zip') {
+        Write-DhaWarn "刚出了 zip，却没找到文件名含 $zipVersion 的 zip —— 套顶层目录被跳过了，检查版本号"
+    } else {
+        Write-DhaInfo '  （没有需要处理的 zip，跳过套顶层目录）'
+    }
+}
 foreach ($z in $zipArtifacts) {
     Write-DhaInfo "重打包 $($z.Name)：套上顶层目录 'Detective Helper'"
     Add-ZipRootFolder -SourceDir (Join-Path $releaseDir 'win-unpacked') -ZipPath $z.FullName -RootName 'Detective Helper'
@@ -267,7 +324,6 @@ if ($artifacts.Count -eq 0) {
     exit 1
 }
 
-$version = Get-DhaAppVersion -ProjectRoot $root
 Write-Host ''
 foreach ($a in $artifacts) {
     Write-Host ("  {0,-52} {1,8} MB" -f $a.Name, [math]::Round($a.Length / 1MB, 1))

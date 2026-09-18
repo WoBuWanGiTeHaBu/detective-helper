@@ -106,7 +106,12 @@ electron-builder 打包 → 报告。产物落在 `build\release\`：
 > 早先还出过一个 `portable.exe`，已经不要了：它是自解压程序，每次运行都要把约 300 MB
 > 解到 `%TEMP%` 再启动，实测冷启动 23 秒。zip 只解压一次，之后就是正常启动。
 
-常用开关：`-NoBuild`（跳过 Maven）、`-SkipStage`（复用现有 JRE 暂存）、`-Targets zip`（只出一种格式）。
+常用开关：`-NoBuild`（跳过 Maven）、`-SkipStage`（复用现有 JRE 暂存）、
+`-SkipPackage`（跳过 electron-builder，只补做给 zip 套顶层目录）、`-Targets zip`（只出一种格式）。
+
+每个版本对用户可见的变化记在 `CHANGELOG.md`。发版时版本号要改**两处**：
+根 `pom.xml` 的 `<version>`（脚本读它做版本报告）与 `electron/package.json` 的 `version`
+（electron-builder 用它拼产物文件名）。
 
 ### 打包链路上的几个硬约束
 

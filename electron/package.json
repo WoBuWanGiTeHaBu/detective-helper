@@ -1,7 +1,7 @@
 {
   "name": "detective-helper",
   "productName": "Detective Helper",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "推演录 · 单机案件推演笔记",
   "main": "main.js",
   "private": true,

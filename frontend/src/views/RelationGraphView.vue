@@ -122,7 +122,7 @@
           >
             <template v-if="n.kind === 'person'">
               <circle :cx="n.x" :cy="n.y" :r="n.r" class="node-shape k-person" />
-              <text :x="n.x" :y="n.y + 5" text-anchor="middle" class="node-name">{{ n.name }}</text>
+              <text :x="n.x" :y="n.y + 4" text-anchor="middle" class="node-name">{{ n.name }}</text>
             </template>
             <template v-else-if="n.kind === 'event'">
               <rect
@@ -301,10 +301,11 @@ const drawnNodes = computed<DrawnNode[]>(() => {
     const meta = nodes.value.find((n) => n.id === id)
     return meta && nodeShapeOf(meta.type) === 'person' ? personRadius(meta.name) : 0
   }
-  // 环形半径：既要舒展（间距够大），又不能越出画布 —— 圆心到上下左右都要留足余量
+  // 环形半径：既要舒展（间距够大），又不能越出画布 —— 圆心到上下左右都要留足余量。
+  // 圆本身已经收小，这里的呼吸量相应放宽：78 → 64，环可以铺得更开。
   const radius = Math.min(
-    Math.min(canvasW, canvasH) / 2 - 78,
-    Math.max(190, ringRadius(rOf(center), nbs.map(rOf), 46))
+    Math.min(canvasW, canvasH) / 2 - 64,
+    Math.max(200, ringRadius(rOf(center), nbs.map(rOf), 72))
   )
   const posMap = radialLayout(center, nbs, {
     cx: canvasW / 2,
@@ -733,7 +734,7 @@ function goBack() {
 
 .node-name {
   font-family: var(--font-sans);
-  font-size: 13.5px;
+  font-size: 12px;
   font-weight: 500;
   fill: #2e3d34;
   pointer-events: none;

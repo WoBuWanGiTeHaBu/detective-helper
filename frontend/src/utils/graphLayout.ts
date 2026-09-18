@@ -25,12 +25,15 @@ export function kindLabel(kind: NodeKind): string {
 }
 
 /**
- * 人物节点是「圆形 + 名字」，半径按名字长度自适应 ——
- * 两个字的小名给 38，三四个字的正名给到 46，正圈得下、又不会大片留白。
+ * 人物节点是「圆形 + 名字」，半径按名字长度自适应。
+ *
+ * 这一版整体收小了一档：原来 38–46 的圆摆在环上显得笨重，几个邻居就把
+ * 画面填满了，勾连关系的那点留白全被吃掉。现在是两个字 28、三个字 34、
+ * 四个字及以上 40，配 12px 的名字仍然排得开，视觉重量却轻得多。
  */
 export function personRadius(name?: string | null): number {
   const len = (name ?? '').trim().length || 2
-  return Math.max(30, Math.min(46, 20 + len * 9))
+  return Math.max(28, Math.min(40, 16 + len * 6))
 }
 
 /**
@@ -38,8 +41,12 @@ export function personRadius(name?: string | null): number {
  * 两个约束取大者：
  *   ① 中心圆 + 邻居圆不能互相压住；
  *   ② 圆周长度够放下所有邻居（各自直径 + 间距），否则一多就叠成一坨。
+ *
+ * gap 是**相邻两圆边缘之间的净空隙**，不是圆心距 —— 圆变小之后视图侧的
+ * 调用都把它调大了（见 RelationGraphView / BookWorkspaceView），
+ * 否则圆一小、圆心距没变，读起来反而更挤。
  */
-export function ringRadius(centerR: number, neighborRs: number[], gap = 26): number {
+export function ringRadius(centerR: number, neighborRs: number[], gap = 34): number {
   const n = neighborRs.length
   if (!n) return centerR + gap
   const cleared = centerR + Math.max(...neighborRs) + gap

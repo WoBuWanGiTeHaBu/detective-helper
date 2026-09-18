@@ -6,6 +6,7 @@
     :class="stateClass"
     @mousedown.stop="$emit('dragstart', $event, object)"
     @dblclick.stop="$emit('edit', object)"
+    @contextmenu.prevent="$emit('menu', $event, object)"
     @mouseenter="$emit('hover', object.id)"
     @mouseleave="$emit('hover', null)"
   >
@@ -72,6 +73,7 @@
     :class="stateClass"
     @mousedown.stop="$emit('dragstart', $event, object)"
     @dblclick.stop="$emit('edit', object)"
+    @contextmenu.prevent="$emit('menu', $event, object)"
     @mouseenter="$emit('hover', object.id)"
     @mouseleave="$emit('hover', null)"
   >
@@ -140,6 +142,7 @@
     :class="stateClass"
     @mousedown.stop="$emit('dragstart', $event, object)"
     @dblclick.stop="$emit('edit', object)"
+    @contextmenu.prevent="$emit('menu', $event, object)"
     @mouseenter="$emit('hover', object.id)"
     @mouseleave="$emit('hover', null)"
   >
@@ -208,6 +211,8 @@ defineEmits<{
   edit: [object: CanvasObject]
   /** 悬停变化，参数为节点 id 或 null */
   hover: [id: string | null]
+  /** 右键 → 打开对象菜单（编辑资料 / 删除） */
+  menu: [event: MouseEvent, object: CanvasObject]
 }>()
 
 /** 由 type 决定视觉形态（type 为自由字符串，做 3 类归一） */

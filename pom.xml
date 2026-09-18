@@ -14,7 +14,7 @@
 
     <groupId>com.theos</groupId>
     <artifactId>detective-helper</artifactId>
-    <version>1.0.0</version>
+    <version>1.1.0</version>
     <packaging>pom</packaging>
 
     <name>Detective Helper</name>

@@ -92,6 +92,14 @@ function Write-Line {
 function Remove-FileHard {
     param([string]$Path)
     if (Test-Path -LiteralPath $Path) {
+        # CDS 训练产出的 .jsa 带只读位，直接 File::Delete 会抛「访问被拒绝」，
+        # 而报错完全不提只读 —— 看着像被进程占用，实际只是属性问题。先摘掉。
+        try {
+            $item = Get-Item -LiteralPath $Path -Force
+            if ($item.IsReadOnly) { $item.IsReadOnly = $false }
+        } catch {
+            # 取属性失败也继续尝试删除，让下面抛出的才是真实原因
+        }
         [System.IO.File]::Delete($Path)
     }
 }

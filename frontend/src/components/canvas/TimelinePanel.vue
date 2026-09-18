@@ -216,26 +216,16 @@
           </marker>
         </defs>
 
-        <!-- ① 时间段：马克笔涂抹（比轴线更淡的长方形，压在轴线下面） -->
+        <!-- ① 时间段：轴线上的加粗带子（单层胶囊，压在轴线下面） -->
         <g class="tl-marker">
-          <rect
-            v-for="m in markers"
-            :key="`bleed-${m.id}`"
-            class="mk-bleed"
-            :x="m.hx"
-            :y="m.hy"
-            :width="m.hw"
-            :height="m.hh"
-            rx="5"
-          />
           <rect
             v-for="m in markers"
             :key="`band-${m.id}`"
             class="mk-band"
-            :x="m.hx2"
-            :y="m.hy2"
-            :width="m.hw2"
-            :height="m.hh2"
+            :x="m.hx"
+            :y="m.hy"
+            :width="m.hw"
+            :height="m.hh"
             rx="4"
           />
         </g>
@@ -373,26 +363,16 @@
         :height="axisWidth"
         :viewBox="`0 0 ${V_AXIS_W} ${axisWidth}`"
       >
-        <!-- ① 时间段：马克笔涂抹 -->
+        <!-- ① 时间段：轴线上的加粗带子（单层胶囊） -->
         <g class="tl-marker">
-          <rect
-            v-for="m in markers"
-            :key="`vbleed-${m.id}`"
-            class="mk-bleed"
-            :x="m.vx"
-            :y="m.vy"
-            :width="m.vw"
-            :height="m.vh"
-            rx="5"
-          />
           <rect
             v-for="m in markers"
             :key="`vband-${m.id}`"
             class="mk-band"
-            :x="m.vx2"
-            :y="m.vy2"
-            :width="m.vw2"
-            :height="m.vh2"
+            :x="m.vx"
+            :y="m.vy"
+            :width="m.vw"
+            :height="m.vh"
             rx="4"
           />
         </g>
@@ -1039,37 +1019,37 @@ const segments = computed(() => {
   return out
 })
 
-/* ---------------- 时间段：马克笔矩形 ---------------- */
+/* ---------------- 时间段：轴线上的加粗带子 ---------------- */
 /**
- * 底下一层更宽更淡的「晕染」，上面一层窄一点的「主笔触」，
- * 两层的颜色都比轴线的确定度色更淡，压在轴线下面读起来像手工涂过。
+ * 之前是双层矩形叠出来的「马克笔」（30px 的淡晕 + 16px 的主笔触），
+ * 观感像用荧光笔来回涂了两遍，视觉噪音比它承载的信息还多。
+ *
+ * 现在只留一层：一条贴着轴线、高 8px 的圆角胶囊。读起来就是
+ * 「轴线在这一段被加粗了」，干净，也不跟刻度、圆点抢位置。
  */
+const MARKER_THICK = 8
+
 const markers = computed(() =>
   laidOut.value
     .filter((p) => p.hasSpan)
     .map((p) => {
       const a = px(p.pos)
       const b = px(p.endPos)
-      const hLeft = Math.min(a, b)
-      const hw = Math.max(Math.abs(b - a), 4)
+      const left = Math.min(a, b)
+      const len = Math.max(Math.abs(b - a), 4)
+      const half = MARKER_THICK / 2
       return {
         id: p.point.id,
-        hx: hLeft,
-        hy: axisY.value - 15,
-        hw,
-        hh: 30,
-        hx2: hLeft,
-        hy2: axisY.value - 8,
-        hw2: hw,
-        hh2: 16,
-        vx: axisVX.value - 15,
-        vy: hLeft,
-        vw: 30,
-        vh: hw,
-        vx2: axisVX.value - 8,
-        vy2: hLeft,
-        vw2: 16,
-        vh2: hw
+        // 横向：带子沿 x 铺开，垂直居中在轴线上
+        hx: left,
+        hy: axisY.value - half,
+        hw: len,
+        hh: MARKER_THICK,
+        // 纵向：带子沿 y 铺开，水平居中在轴线上
+        vx: axisVX.value - half,
+        vy: left,
+        vw: MARKER_THICK,
+        vh: len
       }
     })
 )
@@ -1573,19 +1553,14 @@ defineExpose({ measure })
   display: block;
 }
 
-/* ── 时间段：马克笔涂抹（比轴线更淡的长方形） ── */
+/* ── 时间段：轴线上的加粗带子（单层，不再是双层涂抹） ── */
 .tl-marker {
   pointer-events: none;
 }
 
-.mk-bleed {
-  fill: #b9c9be;
-  opacity: 0.22;
-}
-
 .mk-band {
-  fill: #a8bdb0;
-  opacity: 0.45;
+  fill: #9db4a7;
+  opacity: 0.5;
 }
 
 /* ── 卡片 → 轴线的引出线 ── */
@@ -1704,13 +1679,13 @@ defineExpose({ measure })
   flex: none;
 }
 
-/* 图例里的「时间段」色块 */
+/* 图例里的「时间段」色块：与轴上的带子同一厚度、同一颜色 */
 .legend-mark {
   width: 16px;
-  height: 7px;
+  height: 8px;
   border-radius: 4px;
   margin-right: 4px;
   flex: none;
-  background: rgba(168, 189, 176, 0.55);
+  background: rgba(157, 180, 167, 0.5);
 }
 </style>

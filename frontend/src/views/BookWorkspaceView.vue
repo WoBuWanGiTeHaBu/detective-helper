@@ -251,6 +251,7 @@
               <!-- 原点层：画布 (0,0) 在滚动盒子里的落点。纸张 / 网格 / 内容都挂在这里，
                    内容坐标一个不用改，负坐标的老对象也能滚到 -->
               <div
+                ref="canvasOriginRef"
                 class="canvas-origin"
                 :style="{
                   left: `${scrollBox.offsetX}px`,
@@ -387,7 +388,24 @@
                 @dragstart="onNodeDragStart"
                 @edit="openNodeEditor"
                 @hover="onNodeHover"
+                @menu="openNodeMenu"
               />
+
+              <!-- 缩放手柄：只挂在当前选中的对象上，四角各一个，拖动等比缩放 -->
+              <g v-if="selectedObj" class="rh-layer">
+                <rect
+                  v-for="h in resizeHandles"
+                  :key="h.k"
+                  class="rh"
+                  :class="`rh-${h.k}`"
+                  :x="h.x - RH_SIZE / 2"
+                  :y="h.y - RH_SIZE / 2"
+                  :width="RH_SIZE"
+                  :height="RH_SIZE"
+                  rx="2"
+                  @mousedown.stop.prevent="startObjectResize($event, h.k)"
+                />
+              </g>
             </svg>
 
             <!-- 注解（HTML 层，可编辑 + 可拖动） -->
@@ -398,6 +416,7 @@
               :obstacles="annotationObstacles"
               @update="onAnnotationUpdate"
               @commit="scheduleSave"
+              @remove="onAnnotationRemove"
             />
 
             <!-- 自适应时间线（绝对定位面板，可直接拖动移动） -->
@@ -1330,6 +1349,17 @@
       <button type="button" @click="ctxRename">重命名</button>
       <button type="button" class="danger" @click="ctxDelete">删除事件</button>
     </div>
+
+    <!-- 画布对象右键菜单：删除只在这里和 Delete 键上，避免和拖动、双击编辑打架 -->
+    <div
+      v-if="nodeMenu.open"
+      class="ctx-menu"
+      :style="{ left: `${nodeMenu.x}px`, top: `${nodeMenu.y}px` }"
+      @click.stop
+    >
+      <button type="button" @click="nodeMenuEdit">编辑资料</button>
+      <button type="button" class="danger" @click="nodeMenuDelete">删除对象</button>
+    </div>
   </div>
 </template>
 
@@ -1382,6 +1412,7 @@ import {
   type CanvasPreset
 } from '@/utils/canvasSize'
 import { bundleOffsets, normalFlip } from '@/utils/edgeBundle'
+import { exportCanvasToPng, safeFileName } from '@/utils/exportCanvas'
 import { neighborsOf, nodeShapeOf, personRadius, radialLayout, ringRadius } from '@/utils/graphLayout'
 import {
   layoutFamilyTree,
@@ -1404,6 +1435,8 @@ const bookId = computed(() => Number(route.params.bookId))
 const canvasRef = ref<HTMLElement | null>(null)
 /** 画布滚动容器：滚动条挂在这里，尺寸 = 画布尺寸 × 缩放 */
 const canvasScrollRef = ref<HTMLElement | null>(null)
+/** 画布原点层：导出图片时以它为根克隆整棵子树（纸张 / 背景 / 内容都在里面） */
+const canvasOriginRef = ref<HTMLElement | null>(null)
 
 const book = computed(() => workspaceStore.book)
 const events = computed(() => workspaceStore.events)
@@ -1500,10 +1533,12 @@ onMounted(async () => {
   await workspaceStore.loadWorkspace(bookId.value)
   scrollToPaper()
   document.addEventListener('click', closeCtxMenu)
+  document.addEventListener('keydown', onCanvasKeydown)
 })
 
 onUnmounted(() => {
   document.removeEventListener('click', closeCtxMenu)
+  document.removeEventListener('keydown', onCanvasKeydown)
 })
 
 function goBack() {
@@ -1820,6 +1855,7 @@ function openEventMenu(e: MouseEvent, ev: EventResponse) {
 
 function closeCtxMenu() {
   ctxMenu.open = false
+  nodeMenu.open = false
 }
 
 function ctxRename() {
@@ -2444,6 +2480,12 @@ const TOOLS: { key: CanvasTool; label: string; dividerBefore?: boolean; icon: st
     label: '关系图',
     dividerBefore: true,
     icon: `<svg viewBox="0 0 18 18" fill="none"><circle cx="4.2" cy="4.2" r="2.1" stroke="#6B665E" stroke-width="1.5"/><circle cx="13.8" cy="4.2" r="2.1" stroke="#6B665E" stroke-width="1.5"/><circle cx="9" cy="13.8" r="2.1" stroke="#6B665E" stroke-width="1.5"/><path d="M5.7 5.6 7.7 11.8M12.3 5.6 10.3 11.8" stroke="#6B665E" stroke-width="1.5" stroke-linecap="round"/></svg>`
+  },
+  {
+    key: 'exportImage',
+    label: '导出图片',
+    dividerBefore: true,
+    icon: `<svg viewBox="0 0 18 18" fill="none"><path d="M9 2.6v8.6" stroke="#6B665E" stroke-width="1.5" stroke-linecap="round"/><path d="M5.7 8.2 9 11.5l3.3-3.3" stroke="#6B665E" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M3 14.4h12" stroke="#6B665E" stroke-width="1.5" stroke-linecap="round"/></svg>`
   }
 ]
 
@@ -2471,6 +2513,10 @@ function onToolClick(tool: CanvasTool) {
     case 'relationGraph':
       openRelationGraphs()
       return
+    case 'exportImage':
+      // 纯动作，不改当前工具：导完还停在原来的工具上
+      void exportCanvasImage()
+      return
     case 'timeline':
       addTimeline()
       return
@@ -2497,6 +2543,282 @@ const draggingId = ref<string | null>(null)
 
 function objectById(id: string): CanvasObject | undefined {
   return canvas.value.objects.find((o) => o.id === id)
+}
+
+/** 当前选中的对象：缩放手柄、键盘删除都挂在它身上 */
+const selectedObj = computed(() =>
+  selectedId.value ? (objectById(selectedId.value) ?? null) : null
+)
+
+/* ---------------- 对象缩放：四角手柄 ----------------
+ * 三种形态（人物胶囊 / 事件方框 / 事物菱形）都由 CanvasNode 按
+ * object 的 width/height 现场算路径，所以缩放只要改尺寸就够了，
+ * 不需要按形态分别处理。
+ *
+ * 手感按绘图工具的惯例来：拖某个角时**对角固定**、等比缩放。
+ * 等比系数取两个方向上「变化更大的那个」，于是斜着拖跟手、
+ * 横着拖就只按横向放大，不会出现拖了半天不动的情况。
+ * ------------------------------------------ */
+const RH_SIZE = 9
+const OBJ_MIN_SIDE = 48
+const OBJ_MAX_SIDE = 720
+
+type ResizeCorner = 'nw' | 'ne' | 'sw' | 'se'
+
+const resizeHandles = computed<{ k: ResizeCorner; x: number; y: number }[]>(() => {
+  const o = selectedObj.value
+  if (!o) return []
+  return [
+    { k: 'nw', x: o.x, y: o.y },
+    { k: 'ne', x: o.x + o.width, y: o.y },
+    { k: 'sw', x: o.x, y: o.y + o.height },
+    { k: 'se', x: o.x + o.width, y: o.y + o.height }
+  ]
+})
+
+function startObjectResize(e: MouseEvent, corner: ResizeCorner) {
+  const o = selectedObj.value
+  if (!o) return
+
+  const z = zoom.value || 1
+  const sx = e.clientX
+  const sy = e.clientY
+  const w0 = o.width
+  const h0 = o.height
+  const x0 = o.x
+  const y0 = o.y
+  const ratio = h0 / (w0 || 1)
+
+  const toEast = corner === 'ne' || corner === 'se'
+  const toSouth = corner === 'sw' || corner === 'se'
+  const dirX = toEast ? 1 : -1
+  const dirY = toSouth ? 1 : -1
+  // 拖右侧 → 左边缘不动；拖左侧 → 右边缘不动。上下同理。
+  const fixedRight = x0 + w0
+  const fixedBottom = y0 + h0
+
+  let moved = false
+  document.body.style.userSelect = 'none'
+
+  const onMove = (ev: MouseEvent) => {
+    const dx = ((ev.clientX - sx) / z) * dirX
+    const dy = ((ev.clientY - sy) / z) * dirY
+    const s = Math.max((w0 + dx) / w0, (h0 + dy) / h0)
+    const grid = 4
+
+    let w = Math.round((w0 * s) / grid) * grid
+    w = Math.min(OBJ_MAX_SIDE, Math.max(OBJ_MIN_SIDE, w))
+    const h = Math.min(OBJ_MAX_SIDE, Math.max(24, Math.round((w * ratio) / grid) * grid))
+
+    o.width = w
+    o.height = h
+    o.x = toEast ? x0 : fixedRight - w
+    o.y = toSouth ? y0 : fixedBottom - h
+    moved = true
+  }
+
+  const onUp = () => {
+    document.body.style.userSelect = ''
+    window.removeEventListener('mousemove', onMove)
+    window.removeEventListener('mouseup', onUp)
+    if (moved) void saveNow()
+  }
+
+  window.addEventListener('mousemove', onMove)
+  window.addEventListener('mouseup', onUp)
+}
+
+/* ---------------- 对象菜单 + 删除 ----------------
+ * 删除入口有两个：右键菜单，以及选中后按 Delete / Backspace。
+ * 双击已经给了「编辑资料」，所以不再往它身上挂删除。
+ * ------------------------------------------ */
+const nodeMenu = reactive({
+  open: false,
+  x: 0,
+  y: 0,
+  object: null as CanvasObject | null
+})
+
+function openNodeMenu(e: MouseEvent, obj: CanvasObject) {
+  selectedId.value = obj.id
+  nodeMenu.open = true
+  nodeMenu.x = e.clientX
+  nodeMenu.y = e.clientY
+  nodeMenu.object = obj
+}
+
+function nodeMenuEdit() {
+  const obj = nodeMenu.object
+  nodeMenu.open = false
+  if (obj) void openNodeEditor(obj)
+}
+
+function nodeMenuDelete() {
+  const obj = nodeMenu.object
+  nodeMenu.open = false
+  if (obj) void confirmRemoveObject(obj)
+}
+
+async function confirmRemoveObject(obj: CanvasObject) {
+  const linked = canvas.value.relationships.filter(
+    (r) => r.source === obj.id || r.target === obj.id
+  ).length
+  Modal.confirm({
+    title: `删除${KIND_LABEL[kindOf(obj)]}`,
+    content: linked
+      ? `「${obj.name}」以及挂在它身上的 ${linked} 条关系会被一起删除，此操作不可撤销。`
+      : `「${obj.name}」会被删除，此操作不可撤销。`,
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    async onOk() {
+      await removeObject(obj)
+    }
+  })
+}
+
+/** 真正落地删除：关系必须一起清，否则数据里会留下指向空对象的悬空边 */
+async function removeObject(obj: CanvasObject) {
+  const before = canvas.value.relationships.length
+  canvas.value.objects = canvas.value.objects.filter((o) => o.id !== obj.id)
+  canvas.value.relationships = canvas.value.relationships.filter(
+    (r) => r.source !== obj.id && r.target !== obj.id
+  )
+  if (selectedId.value === obj.id) selectedId.value = null
+  if (linkSourceId.value === obj.id) linkSourceId.value = null
+  if (draggingId.value === obj.id) draggingId.value = null
+  if (nodeMenu.object?.id === obj.id) nodeMenu.open = false
+
+  await saveNow()
+  const dropped = before - canvas.value.relationships.length
+  message.success(
+    dropped ? `已删除「${obj.name}」，同时移除 ${dropped} 条关系` : `已删除「${obj.name}」`
+  )
+}
+
+/** 键盘删除：焦点在输入 / 可编辑区域时让开，避免抢走正常的退格 */
+function onCanvasKeydown(e: KeyboardEvent) {
+  if (e.key !== 'Delete' && e.key !== 'Backspace') return
+
+  const t = e.target as HTMLElement | null
+  if (t) {
+    const tag = t.tagName
+    if (t.isContentEditable || tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+  }
+  if (
+    ctxMenu.open ||
+    nodeMenu.open ||
+    relDialog.open ||
+    nodeDialog.open ||
+    bookDialog.open ||
+    prompt.open
+  ) {
+    return
+  }
+  // 连线连到一半时 Delete 留给「取消」，不当作删除对象
+  if (activeTool.value === 'relation' && linkSourceId.value) return
+
+  const obj = selectedObj.value
+  if (!obj) return
+  e.preventDefault()
+  void confirmRemoveObject(obj)
+}
+
+/* ---------------- 导出画布为图片 ----------------
+ * 画布是 SVG 与 HTML 混合渲染的，导出要先把 DOM 克隆成一份独立 SVG
+ * （细节见 utils/exportCanvas.ts）。这里负责现场准备三件事：
+ *   ① zoom 归 1 —— 背景图案的 pattern 尺寸是按 zoom 算出来的属性值；
+ *   ② 让开选中态 —— 虚线选中框和缩放手柄不该被画进图里；
+ *   ③ 挂 .exporting 类 —— 隐掉注解握把、时间线工具条这些编辑态控件。
+ * 导完一律还原，用户看到的画布不动。
+ * ------------------------------------------ */
+const exporting = ref(false)
+
+function nextFrame(): Promise<void> {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()))
+  })
+}
+
+async function exportCanvasImage() {
+  const origin = canvasOriginRef.value
+  if (currentPageId.value == null || !origin) {
+    message.warning('先选择一个 page')
+    return
+  }
+  if (exporting.value) return
+  exporting.value = true
+
+  const view = canvasScrollRef.value
+  const prev = {
+    zoom: zoom.value,
+    selected: selectedId.value,
+    link: linkSourceId.value,
+    scrollLeft: view?.scrollLeft ?? 0,
+    scrollTop: view?.scrollTop ?? 0
+  }
+
+  zoom.value = 1
+  selectedId.value = null
+  linkSourceId.value = null
+  origin.classList.add('exporting')
+  await nextTick()
+  await nextFrame()
+
+  try {
+    await exportCanvasToPng({
+      origin,
+      width: stageW.value,
+      height: stageH.value,
+      fileName: safeFileName(`${book.value?.name ?? '案件'}·${currentPage.value?.name ?? '画布'}`)
+    })
+    message.success('画布已导出为图片')
+  } catch (err) {
+    message.error(err instanceof Error ? err.message : '导出失败')
+  } finally {
+    origin.classList.remove('exporting')
+    zoom.value = prev.zoom
+    selectedId.value = prev.selected
+    linkSourceId.value = prev.link
+    await nextTick()
+    if (view) {
+      view.scrollLeft = prev.scrollLeft
+      view.scrollTop = prev.scrollTop
+    }
+    exporting.value = false
+  }
+}
+
+/* ---------------- 注解删除 ----------------
+ * 刚建出来还没写字的注解直接删，别为一个空壳弹确认；
+ * 有内容的才问一句，毕竟删掉就没法找回了。
+ * ------------------------------------------ */
+async function onAnnotationRemove(id: string) {
+  const ann = canvas.value.annotations.find((a) => a.id === id)
+  if (!ann) return
+
+  const plain = (ann.content || '').replace(/<[^>]+>/g, '').trim()
+  if (!plain) {
+    await removeAnnotation(id)
+    return
+  }
+
+  Modal.confirm({
+    title: '删除注解',
+    content: '这条注解的内容会被删除，此操作不可撤销。',
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    async onOk() {
+      await removeAnnotation(id)
+    }
+  })
+}
+
+async function removeAnnotation(id: string) {
+  canvas.value.annotations = canvas.value.annotations.filter((a) => a.id !== id)
+  await saveNow()
+  message.success('注解已删除')
 }
 
 /**
@@ -3126,8 +3448,8 @@ interface DrawerNode {
   focus: boolean
 }
 
-/** 环形半径上限：随图形区大小走，别贴边 */
-const ringCap = computed(() => Math.max(70, Math.min(graphBox.w, graphBox.h) / 2 - 52))
+/** 环形半径上限：随图形区大小走，别贴边（圆收小后呼吸量放宽：52 → 44） */
+const ringCap = computed(() => Math.max(70, Math.min(graphBox.w, graphBox.h) / 2 - 44))
 
 const drawerNodes = computed<DrawerNode[]>(() => {
   const cx = graphBox.w / 2
@@ -3156,7 +3478,7 @@ const drawerNodes = computed<DrawerNode[]>(() => {
     const all = [...allowedIds.value]
     if (!all.length) return []
     const n = all.length
-    const radius = n === 1 ? 0 : Math.min(ringCap.value, 44 + n * 8)
+    const radius = n === 1 ? 0 : Math.min(ringCap.value, 56 + n * 9)
     const out: DrawerNode[] = []
     all.forEach((id, i) => {
       const a = -Math.PI / 2 + (i * 2 * Math.PI) / n
@@ -3172,7 +3494,7 @@ const drawerNodes = computed<DrawerNode[]>(() => {
   // 环形半径：既不被中心圆压住，圆周也够放下所有邻居（间距放宽，别挤成一团），再受可用区域限制
   const radius = Math.min(
     ringCap.value,
-    Math.max(62 + nb.length * 9, ringRadius(rOf(center), nb.map(rOf), 42))
+    Math.max(76 + nb.length * 10, ringRadius(rOf(center), nb.map(rOf), 58))
   )
   const posMap = radialLayout(center, nb, { cx, cy, radius })
   const out: DrawerNode[] = []
@@ -4298,6 +4620,61 @@ onUnmounted(() => {
   position: absolute;
 }
 
+/* ── 缩放手柄：挂在选中对象的四角 ──
+   node-layer 整体放行鼠标事件（好让空白处能平移视野），
+   这里把控制点单独捞回来。 */
+.rh-layer {
+  pointer-events: none;
+}
+
+.rh {
+  fill: #ffffff;
+  stroke: #5c7f6b;
+  stroke-width: 1.4;
+  pointer-events: auto;
+  transition: fill 120ms var(--ease);
+}
+
+.rh-nw,
+.rh-se {
+  cursor: nwse-resize;
+}
+
+.rh-ne,
+.rh-sw {
+  cursor: nesw-resize;
+}
+
+.rh:hover {
+  fill: #e4eae5;
+}
+
+/* ── 导出态：编辑期的控件都不该进图 ──
+   注解的握把与按钮、时间线的工具条，都是「用的时候才露面」的东西，
+   画进导出图里只会让人误以为它们是内容。子组件内部的元素要用 :deep 穿透，
+   因为 scoped 只会给本组件的元素挂 data-v 属性。 */
+.canvas-origin.exporting :deep(.anno-head .grip),
+.canvas-origin.exporting :deep(.anno-edit),
+.canvas-origin.exporting :deep(.anno-del),
+.canvas-origin.exporting :deep(.anno-tools),
+.canvas-origin.exporting :deep(.anno-palette),
+.canvas-origin.exporting :deep(.guide),
+.canvas-origin.exporting :deep(.snap-line),
+.canvas-origin.exporting :deep(.tl-grip),
+.canvas-origin.exporting :deep(.tl-count),
+.canvas-origin.exporting :deep(.tl-act),
+.canvas-origin.exporting :deep(.dir-switch),
+.canvas-origin.exporting :deep(.tl-resize),
+.canvas-origin.exporting :deep(.tl-form),
+.canvas-origin.exporting :deep(.rh-layer) {
+  display: none !important;
+}
+
+/* 空标题的 placeholder 是灰字提示，不属于内容 */
+.canvas-origin.exporting :deep(.anno-title::placeholder) {
+  color: transparent !important;
+}
+
 /* 空态 */
 .canvas-empty {
   position: absolute;
@@ -5176,7 +5553,7 @@ onUnmounted(() => {
 
 .graph-node .node-name {
   font-family: var(--font-sans);
-  font-size: 12.5px;
+  font-size: 11.5px;
   font-weight: 500;
   fill: #2e3d34;
   pointer-events: none;

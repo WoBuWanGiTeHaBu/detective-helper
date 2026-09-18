@@ -48,6 +48,29 @@
           />
         </svg>
       </button>
+
+      <!-- 删除：与编辑并排，同样只在悬停时露面，避免平时喧宾夺主 -->
+      <button
+        type="button"
+        class="anno-del"
+        title="删除这条注解"
+        @click.stop="$emit('remove', annotation.id)"
+      >
+        <svg viewBox="0 0 14 14" fill="none">
+          <path
+            d="M3.9 4.2h6.2l-.62 6.5a1.1 1.1 0 0 1-1.1 1H5.62a1.1 1.1 0 0 1-1.1-1z"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linejoin="round"
+          />
+          <path
+            d="M6.1 4.2V3a.8.8 0 0 1 .8-.8h.2a.8.8 0 0 1 .8.8v1.2M2.9 4.2h8.2"
+            stroke="currentColor"
+            stroke-width="1.2"
+            stroke-linecap="round"
+          />
+        </svg>
+      </button>
     </div>
 
     <div
@@ -140,6 +163,8 @@ const emit = defineEmits<{
   update: [id: string, patch: Partial<Annotation>]
   /** 内容 / 位置变更结束，用于触发自动保存 */
   commit: []
+  /** 删除这条注解（确认与落盘交给父组件，这里只上报意图） */
+  remove: [id: string]
 }>()
 
 const local = reactive({
@@ -548,6 +573,38 @@ watch(
 .anno-edit.on {
   background: #e4eae5;
   color: var(--green-ink, #3f5b4c);
+}
+
+/* 删除：与编辑按钮同形同排，只在悬停 / 编辑时现身；自己悬停时转成暖红 */
+.anno-del {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #b3aca2;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 140ms var(--ease), background 140ms var(--ease), color 140ms var(--ease);
+}
+
+.anno-del svg {
+  width: 13px;
+  height: 13px;
+}
+
+.anno:hover .anno-del,
+.anno.editing .anno-del {
+  opacity: 1;
+}
+
+.anno-del:hover {
+  background: #f5ebe8;
+  color: #a8756b;
 }
 
 .anno-body {
